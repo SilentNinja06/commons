@@ -1,0 +1,31 @@
+/* Commons — plain, warm, calm. Uses Obsidian's theme variables so it follows
+   whichever scheme is active. Touch targets stay large on mobile. */
+.cmn-view { padding: 12px; max-width: 760px; margin: 0 auto; }
+.cmn-card { background: var(--background-secondary); border: 1px solid var(--background-modifier-border); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.cmn-card h3 { margin: 0 0 8px; font-size: 1em; }
+.cmn-arrival { border-left: 4px solid var(--interactive-accent); }
+.cmn-now { font-size: 0.9em; color: var(--text-muted); margin-bottom: 6px; }
+.cmn-line { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 0; border-top: 1px solid var(--background-modifier-border); }
+.cmn-line:first-of-type { border-top: none; }
+.cmn-line-label { font-weight: 600; min-width: 7.5em; color: var(--text-muted); }
+.cmn-line-text { flex: 1 1 14em; white-space: pre-wrap; }
+.cmn-line-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-left: auto; align-items: center; }
+.cmn-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cmn-row h3 { margin: 0; }
+.cmn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
+.cmn-chip { border-radius: 999px; border: 2px solid var(--cmn-member, var(--background-modifier-border)); background: var(--background-primary); padding: 6px 14px; min-height: 40px; }
+.cmn-chip.is-on { background: var(--cmn-member, var(--interactive-accent)); color: var(--text-on-accent); border-color: var(--cmn-member, var(--interactive-accent)); }
+.cmn-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.cmn-actions button { min-height: 48px; }
+.cmn-link { background: none !important; border: none !important; box-shadow: none !important; color: var(--text-accent); padding: 4px 0; text-decoration: underline; cursor: pointer; }
+.cmn-muted { color: var(--text-muted); font-size: 0.9em; }
+.cmn-label { font-weight: 600; margin-top: 8px; }
+.cmn-task { display: flex; flex-direction: column; gap: 4px; padding: 8px 0; border-top: 1px solid var(--background-modifier-border); }
+.cmn-member { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; text-align: left; padding: 8px 10px; margin: 4px 0; min-height: 44px; height: auto; }
+.cmn-member.is-archived { opacity: 0.6; }
+.cmn-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--cmn-member, var(--text-faint)); margin-right: 4px; }
+.cmn-helps { flex-basis: 100%; color: var(--text-muted); font-size: 0.9em; white-space: pre-wrap; }
+.cmn-footer { padding: 4px 2px 16px; }
+.cmn-error { border-left: 4px solid var(--text-warning); }
+body:not(.is-mobile) .cmn-chip { min-height: 32px; padding: 4px 12px; }
+body:not(.is-mobile) .cmn-actions button { min-height: 36px; }

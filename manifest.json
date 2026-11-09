@@ -1,0 +1,10 @@
+{
+	"id": "commons",
+	"name": "Commons",
+	"version": "0.1.0",
+	"minAppVersion": "1.4.0",
+	"description": "A shared place for a collective: who's here, handoffs, gaps, members. Mobile-first, no network.",
+	"author": "SilentNinja06",
+	"authorUrl": "https://github.com/SilentNinja06",
+	"isDesktopOnly": false
+}
