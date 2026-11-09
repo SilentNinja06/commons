@@ -28,7 +28,7 @@ __export(main_exports, {
   default: () => CommonsPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian31 = require("obsidian");
+var import_obsidian32 = require("obsidian");
 
 // ../../packages/ui/dist/constants.js
 var CLS = "mrd";
@@ -349,9 +349,9 @@ function fold(events) {
         break;
       }
       case "front": {
-        const when = str(e.when) || e.at;
-        fronts.set(e.id, { id: e.id, who: strs(e.who), when, at: e.at, dev: e.dev, deleted: false });
-        if (when > s.lastAt) s.lastAt = when;
+        const when2 = str(e.when) || e.at;
+        fronts.set(e.id, { id: e.id, who: strs(e.who), when: when2, at: e.at, dev: e.dev, deleted: false });
+        if (when2 > s.lastAt) s.lastAt = when2;
         break;
       }
       case "handoff":
@@ -492,6 +492,202 @@ function localTime(iso) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// src/comms.ts
+var str2 = (v) => typeof v === "string" ? v : "";
+var strs2 = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+function foldComms(events) {
+  var _a, _b, _c;
+  const c = { channels: /* @__PURE__ */ new Map(), messages: /* @__PURE__ */ new Map(), letters: /* @__PURE__ */ new Map(), notices: /* @__PURE__ */ new Map(), polls: /* @__PURE__ */ new Map(), toDaily: [] };
+  const sorted = [...events].sort((a, b) => a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at));
+  const holdable = (id) => {
+    var _a2;
+    return (_a2 = c.messages.get(id)) != null ? _a2 : c.letters.get(id);
+  };
+  for (const e of sorted) {
+    const target = str2(e.target);
+    switch (e.t) {
+      case "channel":
+        c.channels.set(e.id, { id: e.id, name: str2(e.name) || "Untitled", archived: false, at: e.at, mutedBy: /* @__PURE__ */ new Set() });
+        break;
+      case "archive":
+      case "unarchive": {
+        const ch = c.channels.get(target);
+        if (ch) ch.archived = e.t === "archive";
+        break;
+      }
+      case "mute":
+      case "unmute": {
+        const ch = c.channels.get(target);
+        const m = str2(e.member);
+        if (ch && m) e.t === "mute" ? ch.mutedBy.add(m) : ch.mutedBy.delete(m);
+        break;
+      }
+      case "msg":
+        c.messages.set(e.id, {
+          id: e.id,
+          channel: str2(e.channel),
+          by: strs2(e.by),
+          text: str2(e.text),
+          replyTo: str2(e.replyTo),
+          images: strs2(e.images),
+          at: e.at,
+          dev: e.dev,
+          held: e.held === true,
+          deleted: false,
+          reactions: /* @__PURE__ */ new Map(),
+          history: []
+        });
+        break;
+      case "react":
+      case "unreact": {
+        const m = c.messages.get(target);
+        const emoji = str2(e.emoji);
+        const who = str2(e.member) || "?unknown";
+        if (!m || !emoji) break;
+        const set = (_a = m.reactions.get(emoji)) != null ? _a : /* @__PURE__ */ new Set();
+        if (e.t === "react") set.add(who);
+        else set.delete(who);
+        if (set.size) m.reactions.set(emoji, set);
+        else m.reactions.delete(emoji);
+        break;
+      }
+      case "letter":
+        c.letters.set(e.id, { id: e.id, to: strs2(e.to), by: strs2(e.by), text: str2(e.text), at: e.at, dev: e.dev, held: e.held === true, deleted: false, readBy: /* @__PURE__ */ new Set(), history: [] });
+        break;
+      case "read": {
+        const l = c.letters.get(target);
+        for (const m of strs2(e.by)) l == null ? void 0 : l.readBy.add(m);
+        break;
+      }
+      case "notice":
+        c.notices.set(e.id, { id: e.id, text: str2(e.text), by: strs2(e.by), at: e.at, until: str2(e.until), deleted: false });
+        break;
+      case "poll":
+        c.polls.set(e.id, {
+          id: e.id,
+          question: str2(e.question),
+          options: (Array.isArray(e.options) ? e.options : []).map((o) => ({ id: str2(o.id), label: str2(o.label) })).filter((o) => o.id && o.label),
+          multi: e.multi === true,
+          anonymous: e.anonymous === true,
+          deadline: str2(e.deadline),
+          by: strs2(e.by),
+          at: e.at,
+          deleted: false,
+          closed: false,
+          votes: /* @__PURE__ */ new Map()
+        });
+        break;
+      case "vote": {
+        const p = c.polls.get(target);
+        const member = str2(e.member);
+        if (!p || !member || p.closed) break;
+        if (p.deadline && e.at > p.deadline) break;
+        const valid = new Set(p.options.map((o) => o.id));
+        let choices = strs2(e.choices).filter((x) => valid.has(x));
+        if (!p.multi) choices = choices.slice(0, 1);
+        p.votes.set(member, { member, choices, abstain: e.abstain === true || choices.length === 0, relayedBy: str2(e.relayedBy), at: e.at });
+        break;
+      }
+      case "close":
+      case "reopen": {
+        const p = c.polls.get(target);
+        if (p) p.closed = e.t === "close";
+        break;
+      }
+      case "hold":
+      case "unhold": {
+        const h = holdable(target);
+        if (h) h.held = e.t === "hold";
+        break;
+      }
+      case "edit": {
+        const fields = (_b = e.fields) != null ? _b : {};
+        const m = (_c = c.messages.get(target)) != null ? _c : c.letters.get(target);
+        if (m && typeof fields.text === "string") {
+          m.history.push({ at: e.at, text: m.text });
+          m.text = fields.text;
+        }
+        const n = c.notices.get(target);
+        if (n) {
+          if (typeof fields.text === "string") n.text = fields.text;
+          if (typeof fields.until === "string") n.until = fields.until;
+        }
+        const ch = c.channels.get(target);
+        if (ch && typeof fields.name === "string" && fields.name.trim()) ch.name = fields.name.trim();
+        break;
+      }
+      case "delete":
+      case "restore": {
+        const v = e.t === "delete";
+        for (const map of [c.messages, c.letters, c.notices, c.polls]) {
+          const x = map.get(target);
+          if (x) x.deleted = v;
+        }
+        break;
+      }
+      case "todaily":
+        if (target) c.toDaily.push({ target, at: e.at, dev: e.dev, id: e.id });
+        break;
+      default:
+        break;
+    }
+  }
+  return c;
+}
+function channelsFor(c, viewer, opts = {}) {
+  return [...c.channels.values()].filter((ch) => opts.archived || !ch.archived).filter((ch) => opts.muted || !viewer.some((v) => ch.mutedBy.has(v))).sort((a, b) => a.name.localeCompare(b.name));
+}
+function messagesIn(c, channel) {
+  return [...c.messages.values()].filter((m) => m.channel === channel && !m.deleted).sort((a, b) => a.at.localeCompare(b.at));
+}
+function unreadLetters(c, who) {
+  if (who.length === 0) return [];
+  return [...c.letters.values()].filter((l) => !l.deleted && l.to.some((t) => who.includes(t)) && !who.some((w) => l.readBy.has(w))).sort((a, b) => b.at.localeCompare(a.at));
+}
+function lettersFor(c, member) {
+  return [...c.letters.values()].filter((l) => !l.deleted && (l.to.includes(member) || l.by.includes(member))).sort((a, b) => b.at.localeCompare(a.at));
+}
+function activeNotices(c, now) {
+  const iso = now.toISOString();
+  return [...c.notices.values()].filter((n) => !n.deleted && (!n.until || n.until > iso)).sort((a, b) => b.at.localeCompare(a.at));
+}
+function pollOpen(p, now) {
+  return !p.deleted && !p.closed && (!p.deadline || p.deadline > now.toISOString());
+}
+function tally(p, activeMembers2) {
+  var _a;
+  const counts = new Map(p.options.map((o) => [o.id, 0]));
+  let abstained = 0;
+  for (const v of p.votes.values()) {
+    if (v.abstain) abstained++;
+    for (const ch of v.choices) counts.set(ch, ((_a = counts.get(ch)) != null ? _a : 0) + 1);
+  }
+  const voted = [...p.votes.keys()];
+  return { counts, abstained, voted, notHeard: activeMembers2.filter((m) => !p.votes.has(m)) };
+}
+function previewText(x, max = 120) {
+  if (x.held) return "Held \u2014 tap to read";
+  const t = x.text.replace(/\s+/g, " ").trim();
+  return t.length > max ? t.slice(0, max - 1) + "\u2026" : t;
+}
+function search(c, q, channelName, names) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  const hit = (s) => s.toLowerCase().includes(needle);
+  const out = [];
+  for (const m of c.messages.values()) {
+    if (m.deleted) continue;
+    if (!m.held && hit(m.text) || hit(names(m.by))) out.push({ kind: "message", id: m.id, where: `#${channelName(m.channel)}`, at: m.at, snippet: previewText(m) });
+  }
+  for (const l of c.letters.values()) {
+    if (l.deleted) continue;
+    if (!l.held && hit(l.text) || hit(names(l.to)) || hit(names(l.by))) out.push({ kind: "letter", id: l.id, where: `letter to ${names(l.to)}`, at: l.at, snippet: previewText(l) });
+  }
+  for (const n of c.notices.values()) if (!n.deleted && hit(n.text)) out.push({ kind: "notice", id: n.id, where: "noticeboard", at: n.at, snippet: previewText({ text: n.text, held: false }) });
+  for (const p of c.polls.values()) if (!p.deleted && (hit(p.question) || p.options.some((o) => hit(o.label)))) out.push({ kind: "poll", id: p.id, where: "poll", at: p.at, snippet: p.question });
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
+
 // src/arrival.ts
 function oneLine(s) {
   return s.replace(/\s*\n+\s*/g, " / ").trim();
@@ -506,7 +702,7 @@ function handoffSummary(s, h) {
   ].filter(Boolean);
   return `${h.by.length ? `From ${namesOf(s, h.by)}` : "Unsigned"}${h.to.length ? ` for ${namesOf(s, h.to)}` : ""}: ${parts.join("; ") || "(no details)"}`;
 }
-function arrivalLines(s, day, now) {
+function arrivalLines(s, day, now, comms) {
   var _a, _b;
   const out = [];
   const front = currentFront(s);
@@ -523,6 +719,20 @@ function arrivalLines(s, day, now) {
   }
   const unread = newestUnread(s);
   if (unread && !seen.has(unread.id)) out.push({ key: "handoff", label: "Handoff", text: handoffSummary(s, unread), handoff: unread });
+  if (comms) {
+    const letters = unreadLetters(comms, here);
+    if (letters.length) {
+      const first = letters[0];
+      out.push({
+        key: "letters",
+        label: "Letters",
+        text: `${letters.length} unread for ${namesOf(s, here)} \u2014 newest from ${namesOf(s, first.by)}: ${previewText(first, 80)}`
+      });
+    }
+    for (const n of activeNotices(comms, now).slice(0, 3)) out.push({ key: `notice-${n.id}`, label: "Notice", text: previewText({ text: n.text, held: false }, 140) });
+    const waiting = [...comms.polls.values()].filter((p) => pollOpen(p, now) && here.some((m) => !m.startsWith("?") && !p.votes.has(m)));
+    if (waiting.length) out.push({ key: "polls", label: "Polls", text: `${waiting.length} open poll${waiting.length === 1 ? "" : "s"} you haven't answered: ${waiting.map((p) => p.question).slice(0, 2).join(" \xB7 ")}` });
+  }
   if (day.nextAgenda) out.push({ key: "agenda", label: "Next", text: `${day.nextAgenda.time} ${day.nextAgenda.summary}` });
   const due = ((_b = day.directives) != null ? _b : []).filter((d) => !d.done);
   if (due.length) {
@@ -531,8 +741,8 @@ function arrivalLines(s, day, now) {
   }
   const body = [];
   if (day.lastMeal) {
-    const when = day.lastMeal.date === localDate(now.toISOString()) ? day.lastMeal.time : `${day.lastMeal.date} ${day.lastMeal.time}`;
-    body.push(`last ate ${when}${day.lastMeal.label ? ` (${day.lastMeal.label})` : ""}`);
+    const when2 = day.lastMeal.date === localDate(now.toISOString()) ? day.lastMeal.time : `${day.lastMeal.date} ${day.lastMeal.time}`;
+    body.push(`last ate ${when2}${day.lastMeal.label ? ` (${day.lastMeal.label})` : ""}`);
   }
   if (day.meds && day.meds.length) {
     const done = day.meds.filter((m) => m.doneToday).map((m) => m.name);
@@ -798,12 +1008,23 @@ var import_obsidian27 = require("obsidian");
 // src/mirror.ts
 var MIRRORED_KEY = "commons:mirrored";
 var WINDOW_DAYS = 14;
-function mirrorItems(s, device, now, days = WINDOW_DAYS) {
+function mirrorItems(s, device, now, days = WINDOW_DAYS, comms) {
+  var _a, _b, _c;
   const since = new Date(now.getTime() - days * 864e5).toISOString();
   const items = [];
   for (const f of s.fronts) if (!f.deleted && f.dev === device && f.at >= since) items.push({ id: f.id, date: localDate(f.when), time: localTime(f.when), line: frontLine(s, f) });
   for (const h of s.handoffs.values()) if (!h.deleted && h.dev === device && h.at >= since) items.push({ id: h.id, date: localDate(h.when), time: localTime(h.when), line: handoffLine(s, h) });
   for (const g of s.gaps.values()) if (!g.deleted && g.dev === device && g.at >= since) items.push({ id: g.id, date: localDate(g.from), time: localTime(g.from), line: gapLine(g) });
+  for (const r of (_a = comms == null ? void 0 : comms.toDaily) != null ? _a : []) {
+    if (r.dev !== device || r.at < since) continue;
+    const m = comms.messages.get(r.target);
+    const l = comms.letters.get(r.target);
+    const x = m != null ? m : l;
+    if (!x || x.deleted) continue;
+    const where = m ? `#${(_c = (_b = comms.channels.get(m.channel)) == null ? void 0 : _b.name) != null ? _c : "chat"}` : `letter to ${namesOf(s, l.to)}`;
+    const body = x.held ? "(held)" : x.text.replace(/\s*\n+\s*/g, " / ");
+    items.push({ id: r.id, date: localDate(r.at), time: localTime(x.at), line: `- ${localTime(x.at)} ${where}, ${namesOf(s, x.by)}: ${body} ${blockId(r.id)}` });
+  }
   return items.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
 }
 function loadMirrored(app) {
@@ -820,12 +1041,12 @@ function saveMirrored(app, ids) {
   } catch (e) {
   }
 }
-async function mirrorToDailyNotes(app, s, device, now, opts = {}) {
+async function mirrorToDailyNotes(app, s, device, now, opts = {}, comms) {
   const done = loadMirrored(app);
   const today = localDate(now.toISOString());
   let written = 0;
   const waiting = /* @__PURE__ */ new Set();
-  for (const it of mirrorItems(s, device, now, opts.days)) {
+  for (const it of mirrorItems(s, device, now, opts.days, comms)) {
     if (done.has(it.id)) continue;
     if (it.date !== today && !opts.allowCreatePast && !getDailyNoteFile(app, it.date)) {
       waiting.add(it.date);
@@ -847,7 +1068,7 @@ async function mirrorToDailyNotes(app, s, device, now, opts = {}) {
 }
 
 // src/view.ts
-var import_obsidian29 = require("obsidian");
+var import_obsidian30 = require("obsidian");
 
 // src/modals.ts
 var import_obsidian28 = require("obsidian");
@@ -889,17 +1110,17 @@ var HereModal = class extends import_obsidian28.Modal {
     const chosen = new Set((_b = (_a = currentFront(this.plugin.state)) == null ? void 0 : _a.who) != null ? _b : []);
     this.contentEl.createEl("p", { cls: "cmn-muted", text: `Pick one or several. ${t.cofronting[0].toUpperCase() + t.cofronting.slice(1)} is fine, and so is not knowing.` });
     memberChips(this.contentEl, this.plugin, chosen, true);
-    let when = "";
+    let when2 = "";
     new import_obsidian28.Setting(this.contentEl).setName("Earlier than now?").setDesc("Leave empty for now.").addText((x) => {
       x.inputEl.type = "datetime-local";
       x.inputEl.max = toLocalInput(/* @__PURE__ */ new Date());
-      x.onChange((v) => when = v);
+      x.onChange((v) => when2 = v);
     });
     new import_obsidian28.Setting(this.contentEl).addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
         const who = chosen.size ? [...chosen] : [SPECIAL.unknown];
         this.close();
-        await this.plugin.setHere(who, when ? new Date(when) : void 0);
+        await this.plugin.setHere(who, when2 ? new Date(when2) : void 0);
       })
     );
   }
@@ -1071,11 +1292,375 @@ var PickModal = class extends import_obsidian28.Modal {
   }
 };
 
+// src/commsview.ts
+var import_obsidian29 = require("obsidian");
+function ask(plugin, title, value, then) {
+  new TextModal(plugin, title, "", value, async (v) => {
+    await then(v);
+  }).open();
+}
+var REACTIONS = ["\u{1F44D}", "\u2764\uFE0F", "\u{1F602}", "\u{1F62E}", "\u{1F622}", "\u2705"];
+function when(iso) {
+  const today = localDate((/* @__PURE__ */ new Date()).toISOString());
+  return localDate(iso) === today ? localTime(iso) : `${localDate(iso)} ${localTime(iso)}`;
+}
+function speakerPicker(el, plugin, onChange) {
+  const row = el.createDiv({ cls: "cmn-speaker" });
+  row.createSpan({ cls: "cmn-muted", text: "Writing as:" });
+  const cur = new Set(plugin.speaker());
+  for (const m of activeMembers(plugin.state)) {
+    const b = row.createEl("button", { cls: "cmn-chip" + (cur.has(m.id) ? " is-on" : ""), text: m.name || "Unnamed" });
+    if (m.color) b.style.setProperty("--cmn-member", m.color);
+    b.onclick = () => {
+      if (cur.has(m.id)) cur.delete(m.id);
+      else cur.add(m.id);
+      plugin.setSpeaker([...cur]);
+      onChange();
+    };
+  }
+  if (plugin.state.members.size === 0) row.createSpan({ cls: "cmn-muted", text: "(add members on the Today tab \u2014 or write unsigned)" });
+}
+function renderChat(root, plugin, ui) {
+  const c = plugin.comms;
+  const s = plugin.state;
+  const me = plugin.speaker();
+  const card = root.createDiv({ cls: "cmn-card" });
+  const head = card.createDiv({ cls: "cmn-row" });
+  head.createEl("h3", { text: "Channels" });
+  head.createEl("button", { text: "+ Channel" }).onclick = () => ask(plugin, "Channel name", "", async (v) => {
+    if (v.trim()) ui.go("chat", { channel: await plugin.record("channel", { name: v.trim() }) });
+  });
+  const list = channelsFor(c, me, { archived: ui.showArchived });
+  const chips = card.createDiv({ cls: "cmn-chips" });
+  for (const ch2 of list) {
+    const b = chips.createEl("button", { cls: "cmn-chip" + (ch2.id === ui.channel ? " is-on" : ""), text: `#${ch2.name}${ch2.archived ? " (archived)" : ""}` });
+    b.onclick = () => ui.go("chat", { channel: ch2.id });
+  }
+  const muted = [...c.channels.values()].filter((ch2) => !ch2.archived && me.some((m) => ch2.mutedBy.has(m)));
+  if (muted.length) chips.createSpan({ cls: "cmn-muted", text: `${muted.length} muted` });
+  card.createEl("button", { cls: "cmn-link", text: ui.showArchived ? "Hide archived" : "Show archived" }).onclick = () => {
+    ui.showArchived = !ui.showArchived;
+    ui.rerender();
+  };
+  if (list.length === 0) {
+    card.createEl("p", { cls: "cmn-muted", text: "No channels yet. Make one for the house, one for plans \u2014 whatever helps." });
+    return;
+  }
+  if (!list.some((ch2) => ch2.id === ui.channel)) ui.channel = list[0].id;
+  const ch = c.channels.get(ui.channel);
+  const tools = card.createDiv({ cls: "cmn-line-actions" });
+  tools.createEl("button", { text: "Rename" }).onclick = () => ask(plugin, "Channel name", ch.name, (v) => v.trim() ? plugin.record("edit", { target: ch.id, fields: { name: v.trim() } }) : void 0);
+  tools.createEl("button", { text: ch.archived ? "Unarchive" : "Archive" }).onclick = () => void plugin.record(ch.archived ? "unarchive" : "archive", { target: ch.id });
+  if (me.length) {
+    const isMuted = me.some((m) => ch.mutedBy.has(m));
+    tools.createEl("button", { text: isMuted ? "Unmute for me" : "Mute for me" }).onclick = async () => {
+      for (const m of me) await plugin.record(isMuted ? "unmute" : "mute", { target: ch.id, member: m });
+    };
+  }
+  const thread = root.createDiv({ cls: "cmn-card cmn-thread" });
+  const msgs = messagesIn(c, ch.id);
+  if (msgs.length === 0) thread.createEl("p", { cls: "cmn-muted", text: "Nothing here yet." });
+  for (const m of msgs) renderMessage(thread, plugin, ui, m);
+  const comp = root.createDiv({ cls: "cmn-card cmn-compose" });
+  speakerPicker(comp, plugin, ui.rerender);
+  if (ui.replyTo) {
+    const r = c.messages.get(ui.replyTo);
+    const q = comp.createDiv({ cls: "cmn-quote" });
+    q.setText(`Replying to ${r ? namesOf(s, r.by) : "a message"}: ${r ? previewText(r, 80) : ""}`);
+    q.createEl("button", { cls: "cmn-link", text: " cancel" }).onclick = () => {
+      ui.replyTo = "";
+      ui.rerender();
+    };
+  }
+  const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "3", placeholder: `Message #${ch.name}` } });
+  const file = comp.createEl("input", { attr: { type: "file", accept: "image/*", multiple: "" } });
+  let held = false;
+  new import_obsidian29.Setting(comp).setName("Hold it").setDesc("Behind a tap for everyone; never in previews or search. Not encryption.").addToggle((t) => t.onChange((v) => held = v));
+  comp.createEl("button", { cls: "mod-cta", text: "Send" }).onclick = async () => {
+    var _a;
+    const text = ta.value.trim();
+    const files = Array.from((_a = file.files) != null ? _a : []);
+    if (!text && files.length === 0) return;
+    const images = [];
+    for (const f of files) {
+      try {
+        images.push(await plugin.saveImage(f));
+      } catch (e) {
+        new import_obsidian29.Notice(`Couldn't save ${f.name}: ${e.message}`);
+      }
+    }
+    await plugin.record("msg", { channel: ch.id, by: plugin.speaker(), text, replyTo: ui.replyTo, images, held });
+    ui.replyTo = "";
+    ui.rerender();
+  };
+}
+function renderMessage(el, plugin, ui, m) {
+  var _a, _b;
+  const s = plugin.state;
+  const c = plugin.comms;
+  const box = el.createDiv({ cls: "cmn-msg" });
+  const head = box.createDiv({ cls: "cmn-msg-head" });
+  head.createSpan({ cls: "cmn-msg-who", text: m.by.length ? namesOf(s, m.by) : "Unsigned" });
+  head.createSpan({ cls: "cmn-muted", text: ` ${when(m.at)}${m.history.length ? " \xB7 edited" : ""}` });
+  if (m.replyTo) {
+    const r = c.messages.get(m.replyTo);
+    box.createDiv({ cls: "cmn-quote", text: r ? `\u21AA ${namesOf(s, r.by)}: ${previewText(r, 80)}` : "\u21AA a removed message" });
+  }
+  const open = !m.held || ui.revealed.has(m.id);
+  if (open) {
+    if (m.text) box.createDiv({ cls: "cmn-msg-text", text: m.text });
+    for (const p of m.images) {
+      const f = plugin.app.vault.getAbstractFileByPath(p);
+      if (f) box.createEl("img", { cls: "cmn-img", attr: { src: plugin.app.vault.adapter.getResourcePath(p), alt: "attached image" } });
+      else box.createDiv({ cls: "cmn-muted", text: `(image not synced yet: ${p})` });
+    }
+  } else {
+    box.createEl("button", { text: "Held \u2014 tap to read" }).onclick = () => {
+      ui.revealed.add(m.id);
+      ui.rerender();
+    };
+  }
+  if (m.reactions.size) {
+    const r = box.createDiv({ cls: "cmn-reacts" });
+    for (const [emoji, who] of m.reactions) r.createSpan({ cls: "cmn-react", text: `${emoji} ${who.size}`, attr: { title: namesOf(s, [...who]) } });
+  }
+  const acts = box.createDiv({ cls: "cmn-line-actions cmn-msg-actions" });
+  acts.createEl("button", { text: "Reply" }).onclick = () => {
+    ui.replyTo = m.id;
+    ui.rerender();
+  };
+  const me = (_a = plugin.speaker()[0]) != null ? _a : "?unknown";
+  for (const e of REACTIONS) {
+    const mine = (_b = m.reactions.get(e)) == null ? void 0 : _b.has(me);
+    acts.createEl("button", { cls: "cmn-react-btn" + (mine ? " is-on" : ""), text: e }).onclick = () => void plugin.record(mine ? "unreact" : "react", { target: m.id, emoji: e, member: me });
+  }
+  actionsFor(acts, plugin, m, "message");
+}
+function actionsFor(acts, plugin, x, kind) {
+  const me = plugin.speaker();
+  if (x.by.length === 0 || x.by.some((b) => me.includes(b))) {
+    acts.createEl("button", { text: "Edit" }).onclick = () => ask(plugin, "Edit (the earlier version is kept)", x.text, (text) => text !== x.text ? plugin.record("edit", { target: x.id, fields: { text } }) : void 0);
+  }
+  acts.createEl("button", { text: x.held ? "Unhold" : "Hold" }).onclick = () => void plugin.record(x.held ? "unhold" : "hold", { target: x.id, by: me });
+  acts.createEl("button", { text: "To daily note" }).onclick = async () => {
+    await plugin.record("todaily", { target: x.id });
+    new import_obsidian29.Notice(x.held ? "Added to today's note as a held placeholder." : "Added to today's note.");
+  };
+  acts.createEl("button", { text: "Remove" }).onclick = () => void plugin.record("delete", { target: x.id }).then(() => new import_obsidian29.Notice(`${kind === "message" ? "Message" : "Letter"} removed. It can be restored from "Recently removed" on Today.`));
+}
+function renderLetters(root, plugin, ui) {
+  const s = plugin.state;
+  const c = plugin.comms;
+  const members = activeMembers(s);
+  const card = root.createDiv({ cls: "cmn-card" });
+  card.createEl("h3", { text: "Letters" });
+  if (members.length === 0) {
+    card.createEl("p", { cls: "cmn-muted", text: "Letters are addressed to someone \u2014 add members first." });
+    return;
+  }
+  const chips = card.createDiv({ cls: "cmn-chips" });
+  for (const m of members) {
+    const n = unreadLetters(c, [m.id]).length;
+    const b = chips.createEl("button", { cls: "cmn-chip" + (ui.letterMember === m.id ? " is-on" : ""), text: `${m.name || "Unnamed"}${n ? ` (${n})` : ""}` });
+    if (m.color) b.style.setProperty("--cmn-member", m.color);
+    b.onclick = () => ui.go("letters", { member: m.id });
+  }
+  if (!ui.letterMember || !s.members.has(ui.letterMember)) ui.letterMember = plugin.speaker()[0] && s.members.has(plugin.speaker()[0]) ? plugin.speaker()[0] : members[0].id;
+  const who = ui.letterMember;
+  const box = root.createDiv({ cls: "cmn-card" });
+  box.createEl("h4", { text: `To and from ${nameOf(s, who)}` });
+  const letters = lettersFor(c, who);
+  if (letters.length === 0) box.createEl("p", { cls: "cmn-muted", text: "No letters yet." });
+  for (const l of letters) {
+    const row = box.createDiv({ cls: "cmn-msg" + (l.to.includes(who) && !l.readBy.has(who) ? " is-unread" : "") });
+    row.createDiv({ cls: "cmn-msg-head", text: `${l.by.length ? namesOf(s, l.by) : "Unsigned"} \u2192 ${namesOf(s, l.to)} \xB7 ${when(l.at)}${l.history.length ? " \xB7 edited" : ""}` });
+    if (!l.held || ui.revealed.has(l.id)) row.createDiv({ cls: "cmn-msg-text", text: l.text });
+    else
+      row.createEl("button", { text: "Held \u2014 tap to read" }).onclick = () => {
+        ui.revealed.add(l.id);
+        ui.rerender();
+      };
+    const acts = row.createDiv({ cls: "cmn-line-actions" });
+    if (l.to.includes(who) && !l.readBy.has(who)) acts.createEl("button", { cls: "mod-cta", text: `Mark read for ${nameOf(s, who)}` }).onclick = () => void plugin.record("read", { target: l.id, by: [who] });
+    actionsFor(acts, plugin, l, "letter");
+  }
+  const comp = root.createDiv({ cls: "cmn-card cmn-compose" });
+  comp.createEl("h4", { text: "Write a letter" });
+  speakerPicker(comp, plugin, ui.rerender);
+  const to = /* @__PURE__ */ new Set([who]);
+  const toRow = comp.createDiv({ cls: "cmn-chips" });
+  toRow.createSpan({ cls: "cmn-muted", text: "To:" });
+  for (const m of members) {
+    const b = toRow.createEl("button", { cls: "cmn-chip" + (to.has(m.id) ? " is-on" : ""), text: m.name || "Unnamed" });
+    b.onclick = () => {
+      if (to.has(m.id)) to.delete(m.id);
+      else to.add(m.id);
+      b.toggleClass("is-on", to.has(m.id));
+    };
+  }
+  const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "4", placeholder: "Dear\u2026" } });
+  let held = false;
+  new import_obsidian29.Setting(comp).setName("Hold it").addToggle((t) => t.onChange((v) => held = v));
+  comp.createEl("button", { cls: "mod-cta", text: "Send letter" }).onclick = async () => {
+    if (!ta.value.trim() || to.size === 0) return;
+    await plugin.record("letter", { to: [...to], by: plugin.speaker(), text: ta.value.trim(), held });
+    new import_obsidian29.Notice("Letter sent.");
+  };
+}
+function renderNotices(root, plugin) {
+  const card = root.createDiv({ cls: "cmn-card" });
+  card.createEl("h3", { text: "Noticeboard" });
+  const now = /* @__PURE__ */ new Date();
+  const list = activeNotices(plugin.comms, now);
+  if (list.length === 0) card.createEl("p", { cls: "cmn-muted", text: "Nothing pinned." });
+  for (const n of list) {
+    const row = card.createDiv({ cls: "cmn-line" });
+    row.createSpan({ cls: "cmn-line-text", text: n.text });
+    row.createSpan({ cls: "cmn-muted", text: n.until ? `until ${when(n.until)}` : "until removed" });
+    const acts = row.createDiv({ cls: "cmn-line-actions" });
+    acts.createEl("button", { text: "Edit" }).onclick = () => ask(plugin, "Notice", n.text, (text) => text.trim() ? plugin.record("edit", { target: n.id, fields: { text: text.trim() } }) : void 0);
+    acts.createEl("button", { text: "Remove" }).onclick = () => void plugin.record("delete", { target: n.id });
+  }
+  const comp = root.createDiv({ cls: "cmn-card cmn-compose" });
+  const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "2", placeholder: 'Short notice \u2014 e.g. "Bins go out Thursday"' } });
+  let until = "";
+  new import_obsidian29.Setting(comp).setName("Expires (optional)").addText((t) => {
+    t.inputEl.type = "datetime-local";
+    t.onChange((v) => until = v);
+  });
+  comp.createEl("button", { cls: "mod-cta", text: "Pin notice" }).onclick = async () => {
+    if (!ta.value.trim()) return;
+    await plugin.record("notice", { text: ta.value.trim(), by: plugin.speaker(), until: until ? new Date(until).toISOString() : "" });
+  };
+}
+function renderPolls(root, plugin, ui) {
+  const s = plugin.state;
+  const now = /* @__PURE__ */ new Date();
+  const members = activeMembers(s).map((m) => m.id);
+  const polls = [...plugin.comms.polls.values()].filter((p) => !p.deleted).sort((a, b) => Number(pollOpen(b, now)) - Number(pollOpen(a, now)) || b.at.localeCompare(a.at));
+  const head = root.createDiv({ cls: "cmn-card" });
+  head.createEl("h3", { text: "Polls" });
+  if (polls.length === 0) head.createEl("p", { cls: "cmn-muted", text: "No polls yet." });
+  for (const p of polls) renderPoll(root, plugin, ui, p, members, now);
+  const comp = root.createDiv({ cls: "cmn-card cmn-compose" });
+  comp.createEl("h4", { text: "New poll" });
+  const q = comp.createEl("input", { cls: "cmn-input", attr: { type: "text", placeholder: "Question" } });
+  const opts = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "3", placeholder: "One option per line" } });
+  let multi = false;
+  let anonymous = false;
+  let deadline = "";
+  new import_obsidian29.Setting(comp).setName("Pick more than one").addToggle((t) => t.onChange((v) => multi = v));
+  new import_obsidian29.Setting(comp).setName("Anonymous").setDesc("Shows counts only, not who chose what.").addToggle((t) => t.onChange((v) => anonymous = v));
+  new import_obsidian29.Setting(comp).setName("Deadline (optional)").addText((t) => {
+    t.inputEl.type = "datetime-local";
+    t.onChange((v) => deadline = v);
+  });
+  comp.createEl("button", { cls: "mod-cta", text: "Start poll" }).onclick = async () => {
+    const options = opts.value.split("\n").map((l) => l.trim()).filter(Boolean).map((label) => ({ id: newId().slice(0, 8), label }));
+    if (!q.value.trim() || options.length < 2) {
+      new import_obsidian29.Notice("A question and at least two options.");
+      return;
+    }
+    await plugin.record("poll", { question: q.value.trim(), options, multi, anonymous, deadline: deadline ? new Date(deadline).toISOString() : "", by: plugin.speaker() });
+  };
+}
+function renderPoll(root, plugin, ui, p, members, now) {
+  var _a, _b, _c;
+  const s = plugin.state;
+  const open = pollOpen(p, now);
+  const t = tally(p, members);
+  const card = root.createDiv({ cls: "cmn-card" });
+  card.createEl("h4", { text: p.question });
+  card.createDiv({ cls: "cmn-muted", text: [open ? "Open" : "Closed", p.multi ? "pick any" : "pick one", p.anonymous ? "anonymous" : "", p.deadline ? `deadline ${when(p.deadline)}` : ""].filter(Boolean).join(" \xB7 ") });
+  for (const o of p.options) {
+    const who = [...p.votes.values()].filter((v) => v.choices.includes(o.id)).map((v) => v.member);
+    card.createDiv({ cls: "cmn-line", text: `${o.label} \u2014 ${(_a = t.counts.get(o.id)) != null ? _a : 0}${!p.anonymous && who.length ? ` (${namesOf(s, who)})` : ""}` });
+  }
+  if (t.abstained) card.createDiv({ cls: "cmn-muted", text: `${t.abstained} abstained` });
+  if (t.notHeard.length) card.createDiv({ cls: "cmn-muted", text: `Haven't heard from: ${namesOf(s, t.notHeard)}` });
+  if (open) {
+    const vote = card.createDiv({ cls: "cmn-compose" });
+    const me = plugin.speaker();
+    let voter = (_c = (_b = me[0]) != null ? _b : members[0]) != null ? _c : "";
+    const voterRow = vote.createDiv({ cls: "cmn-chips" });
+    voterRow.createSpan({ cls: "cmn-muted", text: "Vote for:" });
+    const paintVoters = () => {
+      voterRow.querySelectorAll("button").forEach((b) => b.remove());
+      for (const m of members) {
+        const b = voterRow.createEl("button", { cls: "cmn-chip" + (voter === m ? " is-on" : ""), text: nameOf(s, m) });
+        b.onclick = () => {
+          voter = m;
+          paintVoters();
+        };
+      }
+    };
+    paintVoters();
+    const chosen = /* @__PURE__ */ new Set();
+    const optRow = vote.createDiv({ cls: "cmn-chips" });
+    for (const o of p.options) {
+      const b = optRow.createEl("button", { cls: "cmn-chip", text: o.label });
+      b.onclick = () => {
+        if (!p.multi) {
+          chosen.clear();
+          optRow.querySelectorAll("button").forEach((x) => x.removeClass("is-on"));
+        }
+        if (chosen.has(o.id)) chosen.delete(o.id);
+        else chosen.add(o.id);
+        b.toggleClass("is-on", chosen.has(o.id));
+      };
+    }
+    const btns = vote.createDiv({ cls: "cmn-line-actions" });
+    const relayed = () => me.includes(voter) || me.length === 0 ? "" : me[0];
+    btns.createEl("button", { cls: "mod-cta", text: "Vote" }).onclick = async () => {
+      if (!voter || chosen.size === 0) return;
+      await plugin.record("vote", { target: p.id, member: voter, choices: [...chosen], relayedBy: relayed() });
+    };
+    btns.createEl("button", { text: "Abstain" }).onclick = async () => {
+      if (!voter) return;
+      await plugin.record("vote", { target: p.id, member: voter, choices: [], abstain: true, relayedBy: relayed() });
+    };
+  }
+  const acts = card.createDiv({ cls: "cmn-line-actions" });
+  acts.createEl("button", { text: p.closed ? "Reopen" : "Close" }).onclick = () => void plugin.record(p.closed ? "reopen" : "close", { target: p.id });
+  acts.createEl("button", { text: "Remove" }).onclick = () => void plugin.record("delete", { target: p.id });
+  void ui;
+}
+function renderSearch(root, plugin, ui) {
+  const card = root.createDiv({ cls: "cmn-card" });
+  card.createEl("h3", { text: "Search Commons" });
+  const input = card.createEl("input", { cls: "cmn-input", attr: { type: "search", placeholder: "Words, a name, a channel\u2026", value: ui.query } });
+  const results = card.createDiv();
+  const run = () => {
+    ui.query = input.value;
+    results.empty();
+    const s = plugin.state;
+    const hits = search(plugin.comms, input.value, (id) => {
+      var _a, _b;
+      return (_b = (_a = plugin.comms.channels.get(id)) == null ? void 0 : _a.name) != null ? _b : "chat";
+    }, (ids) => namesOf(s, ids));
+    if (input.value.trim() && hits.length === 0) results.createEl("p", { cls: "cmn-muted", text: "Nothing found. (Held entries are only found by who wrote them.)" });
+    for (const h of hits.slice(0, 50)) {
+      const row = results.createEl("button", { cls: "cmn-member" });
+      row.createSpan({ cls: "cmn-line-label", text: `${h.where} \xB7 ${when(h.at)}` });
+      row.createSpan({ cls: "cmn-helps", text: h.snippet });
+      row.onclick = () => {
+        var _a, _b;
+        if (h.kind === "message") ui.go("chat", { channel: (_a = plugin.comms.messages.get(h.id)) == null ? void 0 : _a.channel });
+        else if (h.kind === "letter") ui.go("letters", { member: (_b = plugin.comms.letters.get(h.id)) == null ? void 0 : _b.to[0] });
+        else ui.go(h.kind === "notice" ? "notices" : "polls");
+      };
+    }
+  };
+  input.addEventListener("input", run);
+  run();
+  window.setTimeout(() => input.focus(), 0);
+}
+
 // src/view.ts
 var VIEW_TYPE_COMMONS = "commons-view";
 var HERE_TOKEN = "@here";
 var RECENT_DAYS = 7;
-var CommonsView = class extends import_obsidian29.ItemView {
+var CommonsView = class extends import_obsidian30.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -1083,6 +1668,22 @@ var CommonsView = class extends import_obsidian29.ItemView {
     this.revealed = /* @__PURE__ */ new Set();
     this.lowEnergyOnly = false;
     this.day = {};
+    this.section = "today";
+    this.ui = {
+      revealed: this.revealed,
+      channel: "",
+      replyTo: "",
+      letterMember: "",
+      query: "",
+      showArchived: false,
+      go: (sec, opts) => {
+        this.section = sec;
+        if (opts == null ? void 0 : opts.channel) this.ui.channel = opts.channel;
+        if (opts == null ? void 0 : opts.member) this.ui.letterMember = opts.member;
+        void this.refresh();
+      },
+      rerender: () => void this.refresh()
+    };
   }
   getViewType() {
     return VIEW_TYPE_COMMONS;
@@ -1109,13 +1710,38 @@ var CommonsView = class extends import_obsidian29.ItemView {
     scopeEl(root);
     root.addClass("cmn-view");
     try {
-      this.render(root);
+      this.renderSections(root);
+      if (this.section === "today") this.render(root);
+      else if (this.section === "chat") renderChat(root, this.plugin, this.ui);
+      else if (this.section === "letters") renderLetters(root, this.plugin, this.ui);
+      else if (this.section === "notices") renderNotices(root, this.plugin);
+      else if (this.section === "polls") renderPolls(root, this.plugin, this.ui);
+      else renderSearch(root, this.plugin, this.ui);
     } catch (e) {
       console.error("commons: view failed to render", e);
       root.empty();
       const card = root.createDiv({ cls: "cmn-card cmn-error" });
       card.createEl("h3", { text: "Commons couldn't draw this page" });
       card.createEl("p", { text: "Nothing has been lost \u2014 every entry is safe in the vault. Try closing and reopening Commons. Details are in the developer console." });
+    }
+  }
+  /** Section tabs. Badges count only what's waiting for whoever's here. */
+  renderSections(root) {
+    var _a, _b, _c;
+    const c = this.plugin.comms;
+    const here = ((_b = (_a = currentFront(this.plugin.state)) == null ? void 0 : _a.who) != null ? _b : []).filter((id) => !id.startsWith("?"));
+    const now = /* @__PURE__ */ new Date();
+    const badge = {
+      letters: unreadLetters(c, here).length,
+      notices: activeNotices(c, now).length,
+      polls: [...c.polls.values()].filter((p) => pollOpen(p, now) && here.some((m) => !p.votes.has(m))).length
+    };
+    const bar = root.createDiv({ cls: "cmn-sections", attr: { role: "tablist" } });
+    const items = [["today", "Today"], ["chat", "Chat"], ["letters", "Letters"], ["notices", "Notices"], ["polls", "Polls"], ["search", "Search"]];
+    for (const [id, label] of items) {
+      const n = (_c = badge[id]) != null ? _c : 0;
+      const b = bar.createEl("button", { cls: "cmn-section" + (this.section === id ? " is-on" : ""), text: n ? `${label} (${n})` : label, attr: { role: "tab", "aria-selected": String(this.section === id) } });
+      b.onclick = () => this.ui.go(id);
     }
   }
   render(root) {
@@ -1218,7 +1844,7 @@ var CommonsView = class extends import_obsidian29.ItemView {
         } })),
         ...gaps.map((g) => ({ when: g.from, render: (el) => {
           el.createSpan({ cls: "cmn-line-label", text: `${localDate(g.from)} ${localTime(g.from)}\u2013${localTime(g.to)} gap` });
-          const who = g.claims.map((c) => nameOf(s, c.member));
+          const who = g.claims.map((c2) => nameOf(s, c2.member));
           el.createSpan({ cls: "cmn-line-text", text: [g.clues && `clues: ${g.clues}`, who.length && `${who.join(", ")} said "that was me"`].filter(Boolean).join(" \xB7 ") || "No clues yet." });
           const b = el.createDiv({ cls: "cmn-line-actions" });
           b.createEl("button", { text: "That was me" }).onclick = () => new PickModal(this.plugin, "Who was it?", async ([id]) => void await this.plugin.record("claim", { target: g.id, member: id })).open();
@@ -1245,7 +1871,14 @@ var CommonsView = class extends import_obsidian29.ItemView {
       if (m.helps) row.createSpan({ cls: "cmn-helps", text: m.helps });
       row.onclick = () => new MemberModal(this.plugin, m).open();
     }
-    const gone = removed(s).slice(0, 10);
+    const c = this.plugin.comms;
+    const goneComms = [
+      ...[...c.messages.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "message", at: x.at })),
+      ...[...c.letters.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "letter", at: x.at })),
+      ...[...c.notices.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "notice", at: x.at })),
+      ...[...c.polls.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "poll", at: x.at }))
+    ];
+    const gone = [...removed(s), ...goneComms].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20);
     if (gone.length) {
       const det = root.createEl("details", { cls: "cmn-card" });
       det.createEl("summary", { text: `Recently removed (${gone.length})` });
@@ -1265,8 +1898,8 @@ var CommonsView = class extends import_obsidian29.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian30 = require("obsidian");
-var CommonsSettingTab = class extends import_obsidian30.PluginSettingTab {
+var import_obsidian31 = require("obsidian");
+var CommonsSettingTab = class extends import_obsidian31.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -1285,23 +1918,23 @@ var CommonsSettingTab = class extends import_obsidian30.PluginSettingTab {
       cofronting: "More than one here"
     };
     for (const k of Object.keys(DEFAULT_TERMS)) {
-      new import_obsidian30.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
+      new import_obsidian31.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
     }
-    new import_obsidian30.Setting(containerEl).addButton(
+    new import_obsidian31.Setting(containerEl).addButton(
       (b) => b.setButtonText("Save words").setCta().onClick(async () => {
         if (Object.keys(terms).length) await this.plugin.setTerms(terms);
         this.display();
       })
     );
     containerEl.createEl("h3", { text: "Behaviour" });
-    new import_obsidian30.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
+    new import_obsidian31.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
       (t) => t.setValue(this.plugin.settings.offerHandoffOnSwitch).onChange(async (v) => {
         this.plugin.settings.offerHandoffOnSwitch = v;
         await this.plugin.saveSettings();
       })
     );
     containerEl.createEl("h3", { text: "Storage" });
-    new import_obsidian30.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
+    new import_obsidian31.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
       (t) => t.setValue(this.plugin.settings.folder).onChange(async (v) => {
         this.plugin.settings.folder = v.trim() || "Commons";
         await this.plugin.saveSettings();
@@ -1321,11 +1954,12 @@ var CommonsSettingTab = class extends import_obsidian30.PluginSettingTab {
 
 // src/main.ts
 var DEFAULTS = { folder: "Commons", offerHandoffOnSwitch: true };
-var CommonsPlugin = class extends import_obsidian31.Plugin {
+var CommonsPlugin = class extends import_obsidian32.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULTS };
     this.state = fold([]);
+    this.comms = foldComms([]);
     this.loadInfo = { events: [], bad: 0, files: 0, pending: 0 };
     this.listeners = /* @__PURE__ */ new Set();
     /** Read API for the tracker's dashboard panel (via its bridge). */
@@ -1364,7 +1998,7 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
       name: "Write Commons lines into past daily notes (creates missing notes)",
       callback: async () => {
         const r = await mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date(), { allowCreatePast: true });
-        new import_obsidian31.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
+        new import_obsidian32.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
       }
     });
     this.registerObsidianProtocolHandler("commons", (p) => {
@@ -1376,7 +2010,7 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
       else void this.openView();
     });
     this.addSettingTab(new CommonsSettingTab(this.app, this));
-    const reload = (0, import_obsidian31.debounce)(() => void this.reload(), 400, true);
+    const reload = (0, import_obsidian32.debounce)(() => void this.reload(), 400, true);
     this.registerEvent(this.app.vault.on("modify", (f) => this.store.isLogPath(f.path) && reload()));
     this.registerEvent(this.app.vault.on("create", (f) => this.store.isLogPath(f.path) && reload()));
     this.app.workspace.onLayoutReady(() => void this.reload(true));
@@ -1403,8 +2037,9 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
     if (flush) await this.store.flush();
     this.loadInfo = await this.store.loadAll();
     this.state = fold(this.loadInfo.events);
+    this.comms = foldComms(this.loadInfo.events);
     this.emit();
-    void mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date()).catch((e) => console.warn("commons: mirror", e));
+    void mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date(), {}, this.comms).catch((e) => console.warn("commons: mirror", e));
   }
   async retryPending() {
     if (this.store.outbox().length === 0) return;
@@ -1417,28 +2052,28 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
     await this.store.record([e]);
     await this.reload();
     const waiting = this.store.outbox().length;
-    if (waiting) new import_obsidian31.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
+    if (waiting) new import_obsidian32.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
     return e.id;
   }
   // ── actions ──────────────────────────────────────────────────────────────
-  async setHere(who, when) {
+  async setHere(who, when2) {
     var _a;
     const before = currentFront(this.state);
-    await this.record("front", { who, when: (when != null ? when : /* @__PURE__ */ new Date()).toISOString() });
+    await this.record("front", { who, when: (when2 != null ? when2 : /* @__PURE__ */ new Date()).toISOString() });
     const changed = !before || before.who.join() !== who.join();
     const prev = (_a = before == null ? void 0 : before.who.filter((id) => !id.startsWith("?"))) != null ? _a : [];
-    if (changed && !when && prev.length && this.settings.offerHandoffOnSwitch) {
+    if (changed && !when2 && prev.length && this.settings.offerHandoffOnSwitch) {
       const frag = document.createDocumentFragment();
       frag.createSpan({ text: "Want to leave a handoff for whoever's next? " });
       const b = frag.createEl("button", { text: "Write one" });
       b.onclick = () => this.openHandoff(prev);
-      new import_obsidian31.Notice(frag, 8e3);
+      new import_obsidian32.Notice(frag, 8e3);
     }
   }
   async logGap() {
     const w = gapWindow(this.state, /* @__PURE__ */ new Date());
     if (!w) {
-      new import_obsidian31.Notice("Commons: nothing recorded yet, so there's no gap to log.");
+      new import_obsidian32.Notice("Commons: nothing recorded yet, so there's no gap to log.");
       return;
     }
     const id = await this.record("gap", { from: w.from, to: w.to, clues: "" });
@@ -1458,6 +2093,36 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
   async setTerms(terms) {
     await this.record("terms", { terms });
   }
+  // ── speaker (C2) ─────────────────────────────────────────────────────────
+  /** Who's writing, for chat/letters/votes. Sticky per device; defaults to
+   * whoever is marked here. Independent of who's marked here (C1). */
+  speaker() {
+    var _a, _b;
+    try {
+      const v = this.app.loadLocalStorage("commons:speaker");
+      if (Array.isArray(v) && v.every((x) => typeof x === "string") && v.every((x) => this.state.members.has(x))) return v;
+    } catch (e) {
+    }
+    return ((_b = (_a = currentFront(this.state)) == null ? void 0 : _a.who) != null ? _b : []).filter((id) => !id.startsWith("?"));
+  }
+  setSpeaker(ids) {
+    try {
+      this.app.saveLocalStorage("commons:speaker", ids.length ? ids : null);
+    } catch (e) {
+    }
+  }
+  /** Save an image as a vault attachment under the Commons folder; returns its
+   * vault path. Binary files only sync with Obsidian Sync's attachment option. */
+  async saveImage(file) {
+    const dir = `${this.store.folder()}/attachments`;
+    if (!this.app.vault.getAbstractFileByPath(dir)) await this.app.vault.createFolder(dir).catch(() => {
+    });
+    const safe = file.name.replace(/[^A-Za-z0-9._-]+/g, "-").slice(-60) || "image";
+    const stamp = (/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-");
+    const path = `${dir}/${stamp}-${safe}`;
+    await this.app.vault.createBinary(path, await file.arrayBuffer());
+    return path;
+  }
   openHere() {
     new HereModal(this).open();
   }
@@ -1473,6 +2138,6 @@ var CommonsPlugin = class extends import_obsidian31.Plugin {
     this.app.workspace.revealLeaf(leaf);
   }
   async arrival() {
-    return arrivalLines(this.state, await daySnapshot(this.app), /* @__PURE__ */ new Date());
+    return arrivalLines(this.state, await daySnapshot(this.app), /* @__PURE__ */ new Date(), this.comms);
   }
 };

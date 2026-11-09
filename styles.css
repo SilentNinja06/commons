@@ -29,3 +29,24 @@
 .cmn-error { border-left: 4px solid var(--text-warning); }
 body:not(.is-mobile) .cmn-chip { min-height: 32px; padding: 4px 12px; }
 body:not(.is-mobile) .cmn-actions button { min-height: 36px; }
+
+/* C2 — communicate */
+.cmn-sections { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 8px; margin-bottom: 8px; border-bottom: 1px solid var(--background-modifier-border); position: sticky; top: 0; z-index: 2; background: var(--background-primary); }
+.cmn-section { flex: none; border-radius: 999px; min-height: 36px; padding: 4px 12px; }
+.cmn-section.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+.cmn-speaker { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
+.cmn-input { width: 100%; box-sizing: border-box; margin: 6px 0; }
+.cmn-thread { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.cmn-msg { padding: 8px 10px; border-radius: 8px; background: var(--background-primary); border: 1px solid var(--background-modifier-border); }
+.cmn-msg.is-unread { border-left: 4px solid var(--interactive-accent); }
+.cmn-msg-head { font-size: 0.85em; margin-bottom: 4px; }
+.cmn-msg-who { font-weight: 600; }
+.cmn-msg-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.cmn-quote { font-size: 0.85em; color: var(--text-muted); border-left: 3px solid var(--background-modifier-border); padding-left: 6px; margin-bottom: 4px; }
+.cmn-img { max-width: 100%; max-height: 320px; border-radius: 6px; margin-top: 6px; display: block; }
+.cmn-reacts { display: flex; gap: 6px; margin-top: 4px; }
+.cmn-react { font-size: 0.85em; padding: 1px 6px; border-radius: 999px; background: var(--background-secondary); }
+.cmn-msg-actions { margin-top: 6px; }
+.cmn-msg-actions button { min-height: 32px; padding: 2px 8px; }
+.cmn-react-btn.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+.cmn-compose h4 { margin: 0 0 6px; }
