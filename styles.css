@@ -76,3 +76,21 @@ body:not(.is-mobile) .cmn-actions button { min-height: 36px; }
 .cmn-actions-list { display: flex; flex-direction: column; gap: 8px; }
 .cmn-actions-list button { min-height: 44px; }
 body:not(.is-mobile) .cmn-actions-list button { min-height: 32px; }
+
+/* C5 — history */
+.cmn-strip { display: flex; align-items: flex-end; gap: 2px; height: 48px; margin: 6px 0; }
+.cmn-strip-col { flex: 1; height: 100%; display: flex; align-items: flex-end; background: var(--background-primary); border-radius: 2px; }
+.cmn-strip-bar { width: 100%; background: var(--text-muted); border-radius: 2px; min-height: 1px; }
+.cmn-cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.cmn-cal-head { text-align: center; font-size: 0.8em; color: var(--text-muted); }
+.cmn-cal-day { display: flex; flex-direction: column; align-items: center; gap: 2px; min-height: 48px; padding: 4px 0; height: auto; }
+.cmn-cal-day.is-today { border: 2px solid var(--interactive-accent); }
+.cmn-cal-day.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+.cmn-cal-dots { display: flex; gap: 2px; flex-wrap: wrap; justify-content: center; }
+.cmn-cal-dots .cmn-dot { width: 8px; height: 8px; margin: 0; }
+.cmn-gapdot { font-weight: 700; line-height: 8px; }
+.cmn-hday { margin: 10px 0; }
+.cmn-hday h4 { margin: 0 0 4px; }
+.cmn-hbar { position: relative; height: 18px; background: var(--background-primary); border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
+.cmn-hseg { position: absolute; top: 0; bottom: 0; background: var(--cmn-member, var(--text-muted)); opacity: 0.85; }
+.cmn-hseg.is-gap { background: repeating-linear-gradient(45deg, var(--text-faint), var(--text-faint) 3px, transparent 3px, transparent 6px); opacity: 1; }

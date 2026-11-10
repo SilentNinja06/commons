@@ -28,7 +28,7 @@ __export(main_exports, {
   default: () => CommonsPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian34 = require("obsidian");
+var import_obsidian35 = require("obsidian");
 
 // ../../packages/ui/dist/constants.js
 var CLS = "mrd";
@@ -387,6 +387,11 @@ function fold(events) {
       }
       case "edit": {
         const fields = (_b = e.fields) != null ? _b : {};
+        const fr = fronts.get(str(e.target));
+        if (fr) {
+          if (Array.isArray(fields.who)) fr.who = strs(fields.who);
+          if (typeof fields.when === "string" && !isNaN(Date.parse(fields.when))) fr.when = fields.when;
+        }
         const h = s.handoffs.get(str(e.target));
         if (h) {
           h.history.push({ at: e.at, fields: Object.fromEntries(HANDOFF_FIELDS.map((k) => [k, h[k]])) });
@@ -954,6 +959,117 @@ function dailyNoteDates(app) {
   }
 }
 
+// src/history.ts
+function frontSpans(s, start, end, now) {
+  const live = s.fronts.filter((f) => !f.deleted);
+  const out = [];
+  for (let i = 0; i < live.length; i++) {
+    const f = live[i];
+    const from = new Date(f.when);
+    const to = i + 1 < live.length ? new Date(live[i + 1].when) : now;
+    const a = from > start ? from : start;
+    const b = to < end ? to : end;
+    if (b > a) out.push({ frontId: f.id, who: f.who, from: a.toISOString(), to: b.toISOString() });
+  }
+  return out;
+}
+function timeByMember(s, spans) {
+  var _a;
+  const mins = /* @__PURE__ */ new Map();
+  for (const sp of spans) {
+    const m = (new Date(sp.to).getTime() - new Date(sp.from).getTime()) / 6e4;
+    for (const id of sp.who.length ? sp.who : [SPECIAL.unknown]) mins.set(id, ((_a = mins.get(id)) != null ? _a : 0) + m);
+  }
+  return [...mins.entries()].map(([id, minutes]) => {
+    var _a2;
+    return { id, label: (_a2 = SPECIAL_LABEL[id]) != null ? _a2 : nameOf(s, id), minutes: Math.round(minutes) };
+  }).sort((a, b) => a.label.localeCompare(b.label));
+}
+function switchesPerDay(s, start, end) {
+  var _a;
+  const days = /* @__PURE__ */ new Map();
+  for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) days.set(localDate(d.toISOString()), 0);
+  for (const f of s.fronts) {
+    if (f.deleted) continue;
+    const w = new Date(f.when);
+    if (w < start || w >= end) continue;
+    const k = localDate(f.when);
+    days.set(k, ((_a = days.get(k)) != null ? _a : 0) + 1);
+  }
+  return [...days.entries()].map(([date, count]) => ({ date, count }));
+}
+function daySegments(s, date, now) {
+  const [y, m, d] = date.split("-").map(Number);
+  const start = new Date(y, m - 1, d);
+  const end = new Date(y, m - 1, d + 1);
+  const minOf = (iso) => Math.max(0, Math.min(1440, Math.round((new Date(iso).getTime() - start.getTime()) / 6e4)));
+  const segs = frontSpans(s, start, end, now).map((sp) => ({
+    kind: "front",
+    id: sp.frontId,
+    label: sp.who.length ? sp.who.map((id) => {
+      var _a;
+      return (_a = SPECIAL_LABEL[id]) != null ? _a : nameOf(s, id);
+    }).join(", ") : "Unknown",
+    who: sp.who,
+    startMin: minOf(sp.from),
+    endMin: minOf(sp.to)
+  }));
+  for (const g of liveGaps(s)) {
+    if (new Date(g.to) <= start || new Date(g.from) >= end) continue;
+    segs.push({ kind: "gap", id: g.id, label: "Gap", who: [], startMin: minOf(g.from < start.toISOString() ? start.toISOString() : g.from), endMin: minOf(g.to > end.toISOString() ? end.toISOString() : g.to) });
+  }
+  return segs.filter((x) => x.endMin > x.startMin).sort((a, b) => a.startMin - b.startMin);
+}
+function summary(s, start, end, now) {
+  const spans = frontSpans(s, start, end, now);
+  const sw = switchesPerDay(s, start, end);
+  const gaps = liveGaps(s).filter((g) => new Date(g.from) < end && new Date(g.to) > start);
+  const gapMinutes = gaps.reduce((n, g) => {
+    const a = Math.max(new Date(g.from).getTime(), start.getTime());
+    const b = Math.min(new Date(g.to).getTime(), end.getTime());
+    return n + Math.max(0, (b - a) / 6e4);
+  }, 0);
+  return {
+    start: localDate(start.toISOString()),
+    end: localDate(new Date(end.getTime() - 1).toISOString()),
+    time: timeByMember(s, spans).map(({ label, minutes }) => ({ label, minutes })),
+    switches: sw.reduce((n, d) => n + d.count, 0),
+    daysWithEntries: sw.filter((d) => d.count > 0).length,
+    gaps: gaps.length,
+    gapMinutes: Math.round(gapMinutes),
+    handoffs: liveHandoffs(s).filter((h) => new Date(h.when) >= start && new Date(h.when) < end).length
+  };
+}
+function hm(minutes) {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`;
+}
+function searchMore(s, j, maps, q) {
+  var _a, _b, _c, _d, _e;
+  const needle = q.trim().toLowerCase();
+  if (!needle) return [];
+  const hit = (x) => x.toLowerCase().includes(needle);
+  const out = [];
+  for (const h of liveHandoffs(s)) {
+    const by = h.by.map((id) => nameOf(s, id)).join(", ");
+    const text = [h.did, h.unfinished, h.body, h.headsUp].join(" ");
+    if (!h.held && hit(text) || hit(by)) out.push({ kind: "handoff", id: h.id, where: `handoff from ${by || "unsigned"}`, at: h.when, snippet: h.held ? "Held \u2014 tap to read" : text.replace(/\s+/g, " ").trim().slice(0, 120) });
+  }
+  for (const g of liveGaps(s)) if (hit(g.clues)) out.push({ kind: "gap", id: g.id, where: "gap", at: g.from, snippet: g.clues.slice(0, 120) });
+  for (const m of s.members.values()) {
+    const text = [m.name, m.pronouns, m.helps, (_a = m.role) != null ? _a : "", (_b = m.likes) != null ? _b : "", (_c = m.avoid) != null ? _c : "", (_d = m.approach) != null ? _d : "", ...((_e = m.fields) != null ? _e : []).map((f) => `${f.label} ${f.value}`)].join(" ");
+    if (hit(text)) out.push({ kind: "member", id: m.id, where: "member", at: "", snippet: m.name || "Unnamed" });
+  }
+  for (const e of j.entries.values()) {
+    if (e.deleted) continue;
+    const tags = [e.mood, e.energy, ...e.topics].join(" ");
+    if (hit(tags) || !e.held && e.text && hit(e.text)) out.push({ kind: "journal", id: e.id, where: `journal ${e.date}`, at: e.at, snippet: e.held ? "Held \u2014 tap to read" : [e.mood, e.energy, ...e.topics.map((t) => `#${t}`)].filter(Boolean).join(" \xB7 ") });
+  }
+  for (const p of maps.places.values()) if (!p.deleted && hit(p.name)) out.push({ kind: "place", id: p.id, where: "inner world", at: "", snippet: p.name });
+  return out.sort((a, b) => b.at.localeCompare(a.at));
+}
+
 // ../../packages/dash-core/src/core/ics.ts
 var import_obsidian4 = require("obsidian");
 
@@ -1214,7 +1330,7 @@ async function mirrorToDailyNotes(app, s, device, now, opts = {}, comms) {
 }
 
 // src/view.ts
-var import_obsidian32 = require("obsidian");
+var import_obsidian33 = require("obsidian");
 
 // src/modals.ts
 var import_obsidian28 = require("obsidian");
@@ -1554,6 +1670,204 @@ var ActionsModal = class extends import_obsidian28.Modal {
 
 // src/commsview.ts
 var import_obsidian29 = require("obsidian");
+
+// src/maps.ts
+var WORLD = 1e3;
+var BUILT_IN_REL_TYPES = [
+  { id: "rt-close", name: "Close", color: "#c77dba", directed: false, builtIn: true, deleted: false },
+  { id: "rt-family", name: "Family", color: "#d9a441", directed: false, builtIn: true, deleted: false },
+  { id: "rt-friends", name: "Friends", color: "#6fa8dc", directed: false, builtIn: true, deleted: false },
+  { id: "rt-looks-out", name: "Looks out for", color: "#7fb069", directed: true, builtIn: true, deleted: false },
+  { id: "rt-works-with", name: "Works with", color: "#9a9a9a", directed: false, builtIn: true, deleted: false },
+  { id: "rt-tension", name: "Tension", color: "#e07a5f", directed: false, builtIn: true, deleted: false }
+];
+var str4 = (v) => typeof v === "string" ? v : "";
+var num = (v) => typeof v === "number" && isFinite(v) ? Math.max(0, Math.min(WORLD, v)) : NaN;
+function foldMaps(events) {
+  var _a;
+  const m = { types: new Map(BUILT_IN_REL_TYPES.map((t) => [t.id, { ...t }])), relations: /* @__PURE__ */ new Map(), nodePos: /* @__PURE__ */ new Map(), places: /* @__PURE__ */ new Map(), areas: /* @__PURE__ */ new Map(), pins: /* @__PURE__ */ new Map(), background: "" };
+  const sorted = [...events].sort((a, b) => a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at));
+  for (const e of sorted) {
+    const target = str4(e.target);
+    switch (e.t) {
+      case "reltype":
+        m.types.set(e.id, { id: e.id, name: str4(e.name) || "Connection", color: str4(e.color) || "#999999", directed: e.directed === true, builtIn: false, deleted: false });
+        break;
+      case "rel": {
+        const a = str4(e.a);
+        const b = str4(e.b);
+        if (a && b && a !== b) m.relations.set(e.id, { id: e.id, a, b, type: str4(e.type) || "rt-close", note: str4(e.note), deleted: false });
+        break;
+      }
+      case "nodepos": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.nodePos.set(str4(e.member), { x, y });
+        break;
+      }
+      case "unpin":
+        m.nodePos.delete(str4(e.member));
+        break;
+      case "place": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (!isNaN(x) && !isNaN(y)) m.places.set(e.id, { id: e.id, name: str4(e.name) || "Place", x, y, note: str4(e.note), color: str4(e.color), deleted: false });
+        break;
+      }
+      case "area": {
+        const pts = (Array.isArray(e.points) ? e.points : []).map((p) => ({ x: num(p.x), y: num(p.y) })).filter((p) => !isNaN(p.x) && !isNaN(p.y));
+        if (pts.length >= 3) m.areas.set(e.id, { id: e.id, name: str4(e.name), points: pts, color: str4(e.color) || "#6f8079", deleted: false });
+        break;
+      }
+      case "mpin": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.pins.set(str4(e.member), { member: str4(e.member), x, y });
+        break;
+      }
+      case "unmpin":
+        m.pins.delete(str4(e.member));
+        break;
+      case "mapbg":
+        m.background = str4(e.path);
+        break;
+      case "move": {
+        const x = num(e.x);
+        const y = num(e.y);
+        const p = m.places.get(target);
+        if (p && !isNaN(x) && !isNaN(y)) {
+          p.x = x;
+          p.y = y;
+        }
+        break;
+      }
+      case "edit": {
+        const f = (_a = e.fields) != null ? _a : {};
+        const p = m.places.get(target);
+        if (p) {
+          if (typeof f.name === "string" && f.name.trim()) p.name = f.name.trim();
+          if (typeof f.note === "string") p.note = f.note;
+          if (typeof f.color === "string") p.color = f.color;
+        }
+        const a = m.areas.get(target);
+        if (a) {
+          if (typeof f.name === "string") a.name = f.name;
+          if (typeof f.color === "string" && f.color) a.color = f.color;
+        }
+        const r = m.relations.get(target);
+        if (r) {
+          if (typeof f.type === "string" && f.type) r.type = f.type;
+          if (typeof f.note === "string") r.note = f.note;
+        }
+        const t = m.types.get(target);
+        if (t && !t.builtIn) {
+          if (typeof f.name === "string" && f.name.trim()) t.name = f.name.trim();
+          if (typeof f.color === "string" && f.color) t.color = f.color;
+        }
+        break;
+      }
+      case "delete":
+      case "restore": {
+        const v = e.t === "delete";
+        for (const map of [m.relations, m.places, m.areas, m.types]) {
+          const x = map.get(target);
+          if (x) x.deleted = v;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return m;
+}
+function liveRelations(m, members) {
+  return [...m.relations.values()].filter((r) => {
+    var _a;
+    return !r.deleted && members.has(r.a) && members.has(r.b) && !((_a = m.types.get(r.type)) == null ? void 0 : _a.deleted);
+  });
+}
+function layoutNodes(ids, rels, pinned, iterations = 60) {
+  const pos = /* @__PURE__ */ new Map();
+  const sorted = [...ids].sort();
+  const free = sorted.filter((id) => !pinned.has(id));
+  const c = WORLD / 2;
+  const r = WORLD * 0.35;
+  sorted.forEach((id, i) => {
+    const p = pinned.get(id);
+    if (p) pos.set(id, { ...p });
+    else {
+      const a = 2 * Math.PI * i / Math.max(1, sorted.length) - Math.PI / 2;
+      pos.set(id, { x: c + r * Math.cos(a), y: c + r * Math.sin(a) });
+    }
+  });
+  if (free.length === 0) return pos;
+  const k = WORLD / Math.max(2, Math.sqrt(sorted.length) * 2.2);
+  for (let it = 0; it < iterations; it++) {
+    const disp = new Map(free.map((id) => [id, { x: 0, y: 0 }]));
+    for (const a of free) {
+      const pa = pos.get(a);
+      for (const b of sorted) {
+        if (a === b) continue;
+        const pb = pos.get(b);
+        let dx = pa.x - pb.x;
+        let dy = pa.y - pb.y;
+        let d = Math.hypot(dx, dy);
+        if (d < 0.01) {
+          dx = 0.01;
+          dy = 0;
+          d = 0.01;
+        }
+        const f = k * k / d;
+        disp.get(a).x += dx / d * f;
+        disp.get(a).y += dy / d * f;
+      }
+    }
+    for (const rel of rels) {
+      const pa = pos.get(rel.a);
+      const pb = pos.get(rel.b);
+      if (!pa || !pb) continue;
+      const dx = pa.x - pb.x;
+      const dy = pa.y - pb.y;
+      const d = Math.max(0.01, Math.hypot(dx, dy));
+      const f = d * d / k;
+      if (disp.has(rel.a)) {
+        disp.get(rel.a).x -= dx / d * f;
+        disp.get(rel.a).y -= dy / d * f;
+      }
+      if (disp.has(rel.b)) {
+        disp.get(rel.b).x += dx / d * f;
+        disp.get(rel.b).y += dy / d * f;
+      }
+    }
+    const temp = WORLD / 10 * (1 - it / iterations);
+    for (const id of free) {
+      const d = disp.get(id);
+      const len = Math.max(0.01, Math.hypot(d.x, d.y));
+      const p = pos.get(id);
+      p.x = Math.max(40, Math.min(WORLD - 40, p.x + d.x / len * Math.min(len, temp)));
+      p.y = Math.max(40, Math.min(WORLD - 40, p.y + d.y / len * Math.min(len, temp)));
+    }
+  }
+  return pos;
+}
+function zoomAt(v, factor, at, min = 120, max = WORLD * 2) {
+  const w = Math.max(min, Math.min(max, v.w / factor));
+  const s = w / v.w;
+  return { x: at.x - (at.x - v.x) * s, y: at.y - (at.y - v.y) * s, w };
+}
+function fitView(aspect) {
+  if (aspect < 1) {
+    const w = WORLD / aspect;
+    return { x: -(w - WORLD) / 2, y: 0, w };
+  }
+  return { x: 0, y: -(WORLD * aspect - WORLD) / 2, w: WORLD };
+}
+function clampPoint(p) {
+  return { x: Math.max(0, Math.min(WORLD, p.x)), y: Math.max(0, Math.min(WORLD, p.y)) };
+}
+
+// src/commsview.ts
 function ask(plugin, title, value, then) {
   new TextModal(plugin, title, "", value, async (v) => {
     await then(v);
@@ -1898,7 +2212,14 @@ function renderSearch(root, plugin, ui) {
       var _a, _b;
       return (_b = (_a = plugin.comms.channels.get(id)) == null ? void 0 : _a.name) != null ? _b : "chat";
     }, (ids) => namesOf(s, ids));
-    if (input.value.trim() && hits.length === 0) results.createEl("p", { cls: "cmn-muted", text: "Nothing found. (Held entries are only found by who wrote them.)" });
+    const more = searchMore(s, plugin.journal, foldMaps(plugin.loadInfo.events), input.value);
+    for (const h of more.slice(0, 30)) {
+      const row = results.createEl("button", { cls: "cmn-member" });
+      row.createSpan({ cls: "cmn-line-label", text: `${h.where}${h.at ? ` \xB7 ${when(h.at)}` : ""}` });
+      row.createSpan({ cls: "cmn-helps", text: h.snippet });
+      row.onclick = () => ui.go(h.kind === "journal" ? "journal" : h.kind === "place" ? "map" : h.kind === "gap" ? "history" : "today");
+    }
+    if (input.value.trim() && hits.length === 0 && more.length === 0) results.createEl("p", { cls: "cmn-muted", text: "Nothing found." });
     for (const h of hits.slice(0, 50)) {
       const row = results.createEl("button", { cls: "cmn-member" });
       row.createSpan({ cls: "cmn-line-label", text: `${h.where} \xB7 ${when(h.at)}` });
@@ -2121,204 +2442,6 @@ ${t.body}` : t.body;
 
 // src/mapview.ts
 var import_obsidian31 = require("obsidian");
-
-// src/maps.ts
-var WORLD = 1e3;
-var BUILT_IN_REL_TYPES = [
-  { id: "rt-close", name: "Close", color: "#c77dba", directed: false, builtIn: true, deleted: false },
-  { id: "rt-family", name: "Family", color: "#d9a441", directed: false, builtIn: true, deleted: false },
-  { id: "rt-friends", name: "Friends", color: "#6fa8dc", directed: false, builtIn: true, deleted: false },
-  { id: "rt-looks-out", name: "Looks out for", color: "#7fb069", directed: true, builtIn: true, deleted: false },
-  { id: "rt-works-with", name: "Works with", color: "#9a9a9a", directed: false, builtIn: true, deleted: false },
-  { id: "rt-tension", name: "Tension", color: "#e07a5f", directed: false, builtIn: true, deleted: false }
-];
-var str4 = (v) => typeof v === "string" ? v : "";
-var num = (v) => typeof v === "number" && isFinite(v) ? Math.max(0, Math.min(WORLD, v)) : NaN;
-function foldMaps(events) {
-  var _a;
-  const m = { types: new Map(BUILT_IN_REL_TYPES.map((t) => [t.id, { ...t }])), relations: /* @__PURE__ */ new Map(), nodePos: /* @__PURE__ */ new Map(), places: /* @__PURE__ */ new Map(), areas: /* @__PURE__ */ new Map(), pins: /* @__PURE__ */ new Map(), background: "" };
-  const sorted = [...events].sort((a, b) => a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at));
-  for (const e of sorted) {
-    const target = str4(e.target);
-    switch (e.t) {
-      case "reltype":
-        m.types.set(e.id, { id: e.id, name: str4(e.name) || "Connection", color: str4(e.color) || "#999999", directed: e.directed === true, builtIn: false, deleted: false });
-        break;
-      case "rel": {
-        const a = str4(e.a);
-        const b = str4(e.b);
-        if (a && b && a !== b) m.relations.set(e.id, { id: e.id, a, b, type: str4(e.type) || "rt-close", note: str4(e.note), deleted: false });
-        break;
-      }
-      case "nodepos": {
-        const x = num(e.x);
-        const y = num(e.y);
-        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.nodePos.set(str4(e.member), { x, y });
-        break;
-      }
-      case "unpin":
-        m.nodePos.delete(str4(e.member));
-        break;
-      case "place": {
-        const x = num(e.x);
-        const y = num(e.y);
-        if (!isNaN(x) && !isNaN(y)) m.places.set(e.id, { id: e.id, name: str4(e.name) || "Place", x, y, note: str4(e.note), color: str4(e.color), deleted: false });
-        break;
-      }
-      case "area": {
-        const pts = (Array.isArray(e.points) ? e.points : []).map((p) => ({ x: num(p.x), y: num(p.y) })).filter((p) => !isNaN(p.x) && !isNaN(p.y));
-        if (pts.length >= 3) m.areas.set(e.id, { id: e.id, name: str4(e.name), points: pts, color: str4(e.color) || "#6f8079", deleted: false });
-        break;
-      }
-      case "mpin": {
-        const x = num(e.x);
-        const y = num(e.y);
-        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.pins.set(str4(e.member), { member: str4(e.member), x, y });
-        break;
-      }
-      case "unmpin":
-        m.pins.delete(str4(e.member));
-        break;
-      case "mapbg":
-        m.background = str4(e.path);
-        break;
-      case "move": {
-        const x = num(e.x);
-        const y = num(e.y);
-        const p = m.places.get(target);
-        if (p && !isNaN(x) && !isNaN(y)) {
-          p.x = x;
-          p.y = y;
-        }
-        break;
-      }
-      case "edit": {
-        const f = (_a = e.fields) != null ? _a : {};
-        const p = m.places.get(target);
-        if (p) {
-          if (typeof f.name === "string" && f.name.trim()) p.name = f.name.trim();
-          if (typeof f.note === "string") p.note = f.note;
-          if (typeof f.color === "string") p.color = f.color;
-        }
-        const a = m.areas.get(target);
-        if (a) {
-          if (typeof f.name === "string") a.name = f.name;
-          if (typeof f.color === "string" && f.color) a.color = f.color;
-        }
-        const r = m.relations.get(target);
-        if (r) {
-          if (typeof f.type === "string" && f.type) r.type = f.type;
-          if (typeof f.note === "string") r.note = f.note;
-        }
-        const t = m.types.get(target);
-        if (t && !t.builtIn) {
-          if (typeof f.name === "string" && f.name.trim()) t.name = f.name.trim();
-          if (typeof f.color === "string" && f.color) t.color = f.color;
-        }
-        break;
-      }
-      case "delete":
-      case "restore": {
-        const v = e.t === "delete";
-        for (const map of [m.relations, m.places, m.areas, m.types]) {
-          const x = map.get(target);
-          if (x) x.deleted = v;
-        }
-        break;
-      }
-      default:
-        break;
-    }
-  }
-  return m;
-}
-function liveRelations(m, members) {
-  return [...m.relations.values()].filter((r) => {
-    var _a;
-    return !r.deleted && members.has(r.a) && members.has(r.b) && !((_a = m.types.get(r.type)) == null ? void 0 : _a.deleted);
-  });
-}
-function layoutNodes(ids, rels, pinned, iterations = 60) {
-  const pos = /* @__PURE__ */ new Map();
-  const sorted = [...ids].sort();
-  const free = sorted.filter((id) => !pinned.has(id));
-  const c = WORLD / 2;
-  const r = WORLD * 0.35;
-  sorted.forEach((id, i) => {
-    const p = pinned.get(id);
-    if (p) pos.set(id, { ...p });
-    else {
-      const a = 2 * Math.PI * i / Math.max(1, sorted.length) - Math.PI / 2;
-      pos.set(id, { x: c + r * Math.cos(a), y: c + r * Math.sin(a) });
-    }
-  });
-  if (free.length === 0) return pos;
-  const k = WORLD / Math.max(2, Math.sqrt(sorted.length) * 2.2);
-  for (let it = 0; it < iterations; it++) {
-    const disp = new Map(free.map((id) => [id, { x: 0, y: 0 }]));
-    for (const a of free) {
-      const pa = pos.get(a);
-      for (const b of sorted) {
-        if (a === b) continue;
-        const pb = pos.get(b);
-        let dx = pa.x - pb.x;
-        let dy = pa.y - pb.y;
-        let d = Math.hypot(dx, dy);
-        if (d < 0.01) {
-          dx = 0.01;
-          dy = 0;
-          d = 0.01;
-        }
-        const f = k * k / d;
-        disp.get(a).x += dx / d * f;
-        disp.get(a).y += dy / d * f;
-      }
-    }
-    for (const rel of rels) {
-      const pa = pos.get(rel.a);
-      const pb = pos.get(rel.b);
-      if (!pa || !pb) continue;
-      const dx = pa.x - pb.x;
-      const dy = pa.y - pb.y;
-      const d = Math.max(0.01, Math.hypot(dx, dy));
-      const f = d * d / k;
-      if (disp.has(rel.a)) {
-        disp.get(rel.a).x -= dx / d * f;
-        disp.get(rel.a).y -= dy / d * f;
-      }
-      if (disp.has(rel.b)) {
-        disp.get(rel.b).x += dx / d * f;
-        disp.get(rel.b).y += dy / d * f;
-      }
-    }
-    const temp = WORLD / 10 * (1 - it / iterations);
-    for (const id of free) {
-      const d = disp.get(id);
-      const len = Math.max(0.01, Math.hypot(d.x, d.y));
-      const p = pos.get(id);
-      p.x = Math.max(40, Math.min(WORLD - 40, p.x + d.x / len * Math.min(len, temp)));
-      p.y = Math.max(40, Math.min(WORLD - 40, p.y + d.y / len * Math.min(len, temp)));
-    }
-  }
-  return pos;
-}
-function zoomAt(v, factor, at, min = 120, max = WORLD * 2) {
-  const w = Math.max(min, Math.min(max, v.w / factor));
-  const s = w / v.w;
-  return { x: at.x - (at.x - v.x) * s, y: at.y - (at.y - v.y) * s, w };
-}
-function fitView(aspect) {
-  if (aspect < 1) {
-    const w = WORLD / aspect;
-    return { x: -(w - WORLD) / 2, y: 0, w };
-  }
-  return { x: 0, y: -(WORLD * aspect - WORLD) / 2, w: WORLD };
-}
-function clampPoint(p) {
-  return { x: Math.max(0, Math.min(WORLD, p.x)), y: Math.max(0, Math.min(WORLD, p.y)) };
-}
-
-// src/mapview.ts
 var NS = "http://www.w3.org/2000/svg";
 var PALETTE = ["#c77dba", "#d9a441", "#6fa8dc", "#7fb069", "#e07a5f", "#9a8fd1", "#5fa3a3", "#c9a46a"];
 function newMapUi() {
@@ -2702,11 +2825,176 @@ function renderWorld(root, plugin, ui, maps, rerender) {
   root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag places and people to move them; tap for options." });
 }
 
+// src/historyview.ts
+var import_obsidian32 = require("obsidian");
+function newHistUi() {
+  const d = /* @__PURE__ */ new Date();
+  return { days: 7, month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`, focus: "" };
+}
+function dayStart(date) {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+var WhenModal = class extends import_obsidian32.Modal {
+  constructor(plugin, iso, onSave) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.iso = iso;
+    this.onSave = onSave;
+  }
+  onOpen() {
+    scopeEl(this.contentEl);
+    this.titleEl.setText("When did it start?");
+    const d = new Date(this.iso);
+    const p = (n) => String(n).padStart(2, "0");
+    let v = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+    new import_obsidian32.Setting(this.contentEl).addText((t) => {
+      t.inputEl.type = "datetime-local";
+      t.setValue(v).onChange((x) => v = x);
+    });
+    new import_obsidian32.Setting(this.contentEl).addButton(
+      (b) => b.setButtonText("Save").setCta().onClick(async () => {
+        this.close();
+        if (v) await this.onSave(new Date(v).toISOString());
+      })
+    );
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
+function renderHistory(root, plugin, hu, rerender) {
+  var _a, _b, _c;
+  const s = plugin.state;
+  const now = /* @__PURE__ */ new Date();
+  const today = localDate(now.toISOString());
+  const end = new Date(dayStart(today).getTime() + 864e5);
+  const start = hu.focus ? dayStart(hu.focus) : new Date(end.getTime() - hu.days * 864e5);
+  const rangeEnd = hu.focus ? new Date(dayStart(hu.focus).getTime() + 864e5) : end;
+  const top = root.createDiv({ cls: "cmn-card" });
+  const chips = top.createDiv({ cls: "cmn-chips" });
+  for (const d of [1, 7, 30, 90]) {
+    chips.createEl("button", { cls: "cmn-chip" + (!hu.focus && hu.days === d ? " is-on" : ""), text: d === 1 ? "Today" : `${d} days` }).onclick = () => {
+      hu.days = d;
+      hu.focus = "";
+      rerender();
+    };
+  }
+  if (hu.focus) chips.createSpan({ cls: "cmn-chip is-on", text: hu.focus });
+  const acts = top.createDiv({ cls: "cmn-line-actions" });
+  acts.createEl("button", { text: "+ Add a past entry" }).onclick = () => plugin.openHere();
+  acts.createEl("button", { text: "Printable summary\u2026" }).onclick = () => {
+    if (!plugin.openTrackerReport()) new import_obsidian32.Notice("The printable summary is part of the dashboard's health report \u2014 install or update the MERIDIAN dashboard (1.56 or later).");
+  };
+  const spans = frontSpans(s, start, rangeEnd, now);
+  const stats = root.createDiv({ cls: "cmn-card" });
+  stats.createEl("h3", { text: "Time here" });
+  const t = timeByMember(s, spans);
+  if (t.length === 0) stats.createEl("p", { cls: "cmn-muted", text: "Nothing recorded in this range." });
+  for (const x of t) stats.createDiv({ cls: "cmn-line", text: `${x.label} \u2014 ${hm(x.minutes)}` });
+  if (!hu.focus && hu.days > 1) {
+    stats.createEl("h4", { text: "Changes per day" });
+    const sw = switchesPerDay(s, start, end);
+    const strip = stats.createDiv({ cls: "cmn-strip" });
+    const max = Math.max(1, ...sw.map((d) => d.count));
+    for (const d of sw) {
+      const col = strip.createDiv({ cls: "cmn-strip-col", attr: { title: `${d.date}: ${d.count}` } });
+      col.createDiv({ cls: "cmn-strip-bar", attr: { style: `height:${Math.round(d.count / max * 100)}%` } });
+    }
+    stats.createDiv({ cls: "cmn-muted", text: "Just a record \u2014 there's no right number." });
+  }
+  const cal = root.createDiv({ cls: "cmn-card" });
+  const m0 = dayStart(hu.month);
+  const ch = cal.createDiv({ cls: "cmn-row" });
+  ch.createEl("button", { text: "\u2039", attr: { "aria-label": "Previous month" } }).onclick = () => {
+    const d = new Date(m0.getFullYear(), m0.getMonth() - 1, 1);
+    hu.month = localDate(d.toISOString());
+    rerender();
+  };
+  ch.createEl("h3", { text: m0.toLocaleString(void 0, { month: "long", year: "numeric" }) });
+  ch.createEl("button", { text: "\u203A", attr: { "aria-label": "Next month" } }).onclick = () => {
+    const d = new Date(m0.getFullYear(), m0.getMonth() + 1, 1);
+    hu.month = localDate(d.toISOString());
+    rerender();
+  };
+  const grid = cal.createDiv({ cls: "cmn-cal" });
+  for (const w of ["M", "T", "W", "T", "F", "S", "S"]) grid.createDiv({ cls: "cmn-cal-head", text: w });
+  const lead = (m0.getDay() + 6) % 7;
+  for (let i = 0; i < lead; i++) grid.createDiv();
+  const monthEnd = new Date(m0.getFullYear(), m0.getMonth() + 1, 1);
+  for (let d = new Date(m0); d < monthEnd; d.setDate(d.getDate() + 1)) {
+    const ds = localDate(d.toISOString());
+    const segs = daySegments(s, ds, now);
+    const cell = grid.createEl("button", { cls: "cmn-cal-day" + (ds === hu.focus ? " is-on" : "") + (ds === today ? " is-today" : "") });
+    cell.createDiv({ cls: "cmn-cal-num", text: String(d.getDate()) });
+    const dots = cell.createDiv({ cls: "cmn-cal-dots" });
+    const who = new Set(segs.filter((x) => x.kind === "front").flatMap((x) => x.who));
+    for (const id of [...who].slice(0, 4)) {
+      const dot = dots.createSpan({ cls: "cmn-dot" });
+      const c = (_a = s.members.get(id)) == null ? void 0 : _a.color;
+      if (c) dot.style.setProperty("--cmn-member", c);
+    }
+    if (segs.some((x) => x.kind === "gap")) dots.createSpan({ cls: "cmn-gapdot", text: "\xB7" });
+    cell.onclick = () => {
+      hu.focus = hu.focus === ds ? "" : ds;
+      rerender();
+    };
+  }
+  const tl = root.createDiv({ cls: "cmn-card" });
+  tl.createEl("h3", { text: "Timeline" });
+  const days = [];
+  for (let d = new Date(rangeEnd.getTime() - 864e5); d >= start; d.setDate(d.getDate() - 1)) days.push(localDate(d.toISOString()));
+  let shown = 0;
+  for (const ds of days) {
+    const segs = daySegments(s, ds, now);
+    if (segs.length === 0) continue;
+    shown++;
+    const box = tl.createDiv({ cls: "cmn-hday" });
+    box.createEl("h4", { text: ds });
+    const bar = box.createDiv({ cls: "cmn-hbar" });
+    for (const g of segs) {
+      const seg = bar.createDiv({ cls: "cmn-hseg" + (g.kind === "gap" ? " is-gap" : ""), attr: { style: `left:${g.startMin / 1440 * 100}%;width:${(g.endMin - g.startMin) / 1440 * 100}%`, title: g.label } });
+      const c = g.kind === "front" ? (_c = s.members.get((_b = g.who[0]) != null ? _b : "")) == null ? void 0 : _c.color : "";
+      if (c) seg.style.setProperty("--cmn-member", c);
+    }
+    for (const g of segs) {
+      const row = box.createEl("button", { cls: "cmn-member" });
+      const hhmm = (min) => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
+      row.createSpan({ cls: "cmn-line-label", text: `${hhmm(g.startMin)}\u2013${g.endMin >= 1440 ? "24:00" : hhmm(g.endMin)}` });
+      row.createSpan({ text: g.kind === "gap" ? "Gap" : g.label });
+      row.onclick = () => editSegment(plugin, g.kind, g.id);
+    }
+  }
+  if (shown === 0) tl.createEl("p", { cls: "cmn-muted", text: "Nothing recorded in this range." });
+}
+function editSegment(plugin, kind, id) {
+  const s = plugin.state;
+  if (kind === "gap") {
+    const g = s.gaps.get(id);
+    new ActionsModal(plugin, "Gap", g ? `${localDate(g.from)} ${localTime(g.from)}\u2013${localTime(g.to)}` : "", [
+      { label: "Add clues", run: () => new GapCluesModal(plugin, id).open() },
+      { label: "That was me", run: () => new PickModal(plugin, "Who was it?", async ([m]) => void await plugin.record("claim", { target: id, member: m })).open() },
+      { label: "Remove", warn: true, run: () => void plugin.record("delete", { target: id }) }
+    ]).open();
+    return;
+  }
+  const f = s.fronts.find((x) => x.id === id);
+  if (!f) return;
+  const specials = Object.values(SPECIAL).map((v) => ({ id: v, label: SPECIAL_LABEL[v] }));
+  new ActionsModal(plugin, f.who.map((w) => nameOf(s, w)).join(", ") || "Unknown", `Started ${localDate(f.when)} ${localTime(f.when)}. Corrections keep the earlier version in the log.`, [
+    { label: "Change who", run: () => new PickModal(plugin, "Who was here?", async ([m]) => void await plugin.record("edit", { target: id, fields: { who: [m] } }), specials).open() },
+    { label: "Add someone (co-fronting)", run: () => new PickModal(plugin, "Who else?", async ([m]) => void await plugin.record("edit", { target: id, fields: { who: [...f.who.filter((w) => !w.startsWith("?")), m] } })).open() },
+    { label: "Change start time", run: () => new WhenModal(plugin, f.when, (iso) => plugin.record("edit", { target: id, fields: { when: iso } }).then(() => {
+    })).open() },
+    { label: "Remove", warn: true, run: () => void plugin.record("delete", { target: id }) }
+  ]).open();
+}
+
 // src/view.ts
 var VIEW_TYPE_COMMONS = "commons-view";
 var HERE_TOKEN = "@here";
 var RECENT_DAYS = 7;
-var CommonsView = class extends import_obsidian32.ItemView {
+var CommonsView = class extends import_obsidian33.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -2717,6 +3005,7 @@ var CommonsView = class extends import_obsidian32.ItemView {
     this.section = "today";
     this.jui = { page: 0, member: "", topic: "" };
     this.mui = newMapUi();
+    this.hui = newHistUi();
     this.pendingRefresh = false;
     this.ui = {
       revealed: this.revealed,
@@ -2786,6 +3075,7 @@ var CommonsView = class extends import_obsidian32.ItemView {
       else if (this.section === "polls") renderPolls(root, this.plugin, this.ui);
       else if (this.section === "journal") await renderJournal(root, this.plugin, this.ui, this.jui);
       else if (this.section === "map") renderMaps(root, this.plugin, this.mui, () => void this.refresh());
+      else if (this.section === "history") renderHistory(root, this.plugin, this.hui, () => void this.refresh());
       else renderSearch(root, this.plugin, this.ui);
     } catch (e) {
       console.error("commons: view failed to render", e);
@@ -2807,7 +3097,7 @@ var CommonsView = class extends import_obsidian32.ItemView {
       polls: [...c.polls.values()].filter((p) => pollOpen(p, now) && here.some((m) => !p.votes.has(m))).length
     };
     const bar = root.createDiv({ cls: "cmn-sections", attr: { role: "tablist" } });
-    const items = [["today", "Today"], ["journal", "Journal"], ["chat", "Chat"], ["letters", "Letters"], ["notices", "Notices"], ["polls", "Polls"], ["map", "Map"], ["search", "Search"]];
+    const items = [["today", "Today"], ["journal", "Journal"], ["chat", "Chat"], ["letters", "Letters"], ["notices", "Notices"], ["polls", "Polls"], ["map", "Map"], ["history", "History"], ["search", "Search"]];
     for (const [id, label] of items) {
       const n = (_c = badge[id]) != null ? _c : 0;
       const b = bar.createEl("button", { cls: "cmn-section" + (this.section === id ? " is-on" : ""), text: n ? `${label} (${n})` : label, attr: { role: "tab", "aria-selected": String(this.section === id) } });
@@ -2978,8 +3268,8 @@ var CommonsView = class extends import_obsidian32.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian33 = require("obsidian");
-var CommonsSettingTab = class extends import_obsidian33.PluginSettingTab {
+var import_obsidian34 = require("obsidian");
+var CommonsSettingTab = class extends import_obsidian34.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -2998,23 +3288,23 @@ var CommonsSettingTab = class extends import_obsidian33.PluginSettingTab {
       cofronting: "More than one here"
     };
     for (const k of Object.keys(DEFAULT_TERMS)) {
-      new import_obsidian33.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
+      new import_obsidian34.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
     }
-    new import_obsidian33.Setting(containerEl).addButton(
+    new import_obsidian34.Setting(containerEl).addButton(
       (b) => b.setButtonText("Save words").setCta().onClick(async () => {
         if (Object.keys(terms).length) await this.plugin.setTerms(terms);
         this.display();
       })
     );
     containerEl.createEl("h3", { text: "Behaviour" });
-    new import_obsidian33.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
+    new import_obsidian34.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
       (t) => t.setValue(this.plugin.settings.offerHandoffOnSwitch).onChange(async (v) => {
         this.plugin.settings.offerHandoffOnSwitch = v;
         await this.plugin.saveSettings();
       })
     );
     containerEl.createEl("h3", { text: "Storage" });
-    new import_obsidian33.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
+    new import_obsidian34.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
       (t) => t.setValue(this.plugin.settings.folder).onChange(async (v) => {
         this.plugin.settings.folder = v.trim() || "Commons";
         await this.plugin.saveSettings();
@@ -3034,7 +3324,7 @@ var CommonsSettingTab = class extends import_obsidian33.PluginSettingTab {
 
 // src/main.ts
 var DEFAULTS = { folder: "Commons", offerHandoffOnSwitch: true };
-var CommonsPlugin = class extends import_obsidian34.Plugin {
+var CommonsPlugin = class extends import_obsidian35.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULTS };
@@ -3059,6 +3349,13 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
       ack: (id) => this.ack(id),
       openView: () => this.openView(),
       openJournal: () => this.openJournal(),
+      /** Counts for the printable summary (no held content). Dates are local
+       * YYYY-MM-DD, end inclusive. */
+      reportSummary: (start, end) => {
+        const [ys, ms, ds] = start.split("-").map(Number);
+        const [ye, me, de] = end.split("-").map(Number);
+        return summary(this.state, new Date(ys, ms - 1, ds), new Date(ye, me - 1, de + 1), /* @__PURE__ */ new Date());
+      },
       openHere: () => this.openHere(),
       openHandoff: () => this.openHandoff(),
       logGap: () => this.logGap(),
@@ -3080,7 +3377,7 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
       name: "Write Commons lines into past daily notes (creates missing notes)",
       callback: async () => {
         const r = await mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date(), { allowCreatePast: true });
-        new import_obsidian34.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
+        new import_obsidian35.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
       }
     });
     this.registerObsidianProtocolHandler("commons", (p) => {
@@ -3092,7 +3389,7 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
       else void this.openView();
     });
     this.addSettingTab(new CommonsSettingTab(this.app, this));
-    const reload = (0, import_obsidian34.debounce)(() => void this.reload(), 400, true);
+    const reload = (0, import_obsidian35.debounce)(() => void this.reload(), 400, true);
     this.registerEvent(this.app.vault.on("modify", (f) => this.store.isLogPath(f.path) && reload()));
     this.registerEvent(this.app.vault.on("create", (f) => this.store.isLogPath(f.path) && reload()));
     this.app.workspace.onLayoutReady(() => void this.reload(true));
@@ -3136,7 +3433,7 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
     await this.store.record([e]);
     await this.reload();
     const waiting = this.store.outbox().length;
-    if (waiting) new import_obsidian34.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
+    if (waiting) new import_obsidian35.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
     return e.id;
   }
   // ── actions ──────────────────────────────────────────────────────────────
@@ -3151,13 +3448,13 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
       frag.createSpan({ text: "Want to leave a handoff for whoever's next? " });
       const b = frag.createEl("button", { text: "Write one" });
       b.onclick = () => this.openHandoff(prev);
-      new import_obsidian34.Notice(frag, 8e3);
+      new import_obsidian35.Notice(frag, 8e3);
     }
   }
   async logGap() {
     const w = gapWindow(this.state, /* @__PURE__ */ new Date());
     if (!w) {
-      new import_obsidian34.Notice("Commons: nothing recorded yet, so there's no gap to log.");
+      new import_obsidian35.Notice("Commons: nothing recorded yet, so there's no gap to log.");
       return;
     }
     const id = await this.record("gap", { from: w.from, to: w.to, clues: "" });
@@ -3240,7 +3537,7 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
     });
     await this.store.record([e]);
     await this.reload();
-    new import_obsidian34.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
+    new import_obsidian35.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
   }
   /** Write any of this device's entries that couldn't reach today's note yet. */
   async retryJournal() {
@@ -3258,6 +3555,15 @@ var CommonsPlugin = class extends import_obsidian34.Plugin {
       if (!present.has(e.id) && noteText && !await appendJournalEntry(this.app, e.section, noteText)) continue;
       await this.record("noted", { target: e.id });
     }
+  }
+  /** Open the tracker's health report with the Commons summary switched on —
+   * the one report system (brief C5). False if the dashboard is too old. */
+  openTrackerReport() {
+    var _a, _b, _c, _d;
+    const api2 = (_c = (_b = (_a = this.app.plugins) == null ? void 0 : _a.plugins) == null ? void 0 : _b["meridian-dash"]) == null ? void 0 : _c.api;
+    if (!(api2 == null ? void 0 : api2.openReport) || ((_d = api2.version) != null ? _d : 0) < 4) return false;
+    api2.openReport({ includeCommons: true });
+    return true;
   }
   async openJournal() {
     var _a, _b;
