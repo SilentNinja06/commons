@@ -50,3 +50,12 @@ body:not(.is-mobile) .cmn-actions button { min-height: 36px; }
 .cmn-msg-actions button { min-height: 32px; padding: 2px 8px; }
 .cmn-react-btn.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
 .cmn-compose h4 { margin: 0 0 6px; }
+
+/* C3 — journal + profiles */
+.cmn-jfield { margin-bottom: 10px; }
+.cmn-jstatus { min-height: 1.2em; }
+.cmn-jday { border-top: 1px solid var(--background-modifier-border); padding-top: 8px; margin-top: 8px; }
+.cmn-jday h4 { margin: 0; }
+.cmn-jsec { margin: 6px 0 10px; }
+.cmn-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; margin-right: 4px; }
+.cmn-profile summary { cursor: pointer; font-weight: 600; margin: 8px 0; }
