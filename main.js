@@ -28,7 +28,7 @@ __export(main_exports, {
   default: () => CommonsPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian33 = require("obsidian");
+var import_obsidian34 = require("obsidian");
 
 // ../../packages/ui/dist/constants.js
 var CLS = "mrd";
@@ -50,18 +50,18 @@ function applyUiStyles(plugin) {
   const id = `mrd-ui-styles-${plugin.manifest.id}`;
   if (document.getElementById(id))
     return;
-  const el = document.createElement("style");
-  el.id = id;
-  el.textContent = UI_CSS;
-  document.head.appendChild(el);
-  plugin.register(() => el.remove());
+  const el2 = document.createElement("style");
+  el2.id = id;
+  el2.textContent = UI_CSS;
+  document.head.appendChild(el2);
+  plugin.register(() => el2.remove());
 }
-function scopeEl(el, opts = {}) {
-  el.classList.add(cls("scope"));
+function scopeEl(el2, opts = {}) {
+  el2.classList.add(cls("scope"));
   if (opts.density === "compact")
-    el.classList.add(cls("density", "compact"));
+    el2.classList.add(cls("density", "compact"));
   if (opts.accentSkin)
-    el.classList.add(cls("skin", "accent"));
+    el2.classList.add(cls("skin", "accent"));
 }
 
 // src/store.ts
@@ -1214,12 +1214,12 @@ async function mirrorToDailyNotes(app, s, device, now, opts = {}, comms) {
 }
 
 // src/view.ts
-var import_obsidian31 = require("obsidian");
+var import_obsidian32 = require("obsidian");
 
 // src/modals.ts
 var import_obsidian28 = require("obsidian");
-function memberChips(el, plugin, chosen, specials) {
-  const wrap = el.createDiv({ cls: "cmn-chips" });
+function memberChips(el2, plugin, chosen, specials) {
+  const wrap = el2.createDiv({ cls: "cmn-chips" });
   const add = (id, label, color = "") => {
     const b = wrap.createEl("button", { text: label, cls: "cmn-chip" });
     if (color) b.style.setProperty("--cmn-member", color);
@@ -1386,9 +1386,9 @@ var MemberModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-function fullProfileFields(el, plugin, m) {
+function fullProfileFields(el2, plugin, m) {
   var _a, _b;
-  const det = el.createEl("details", { cls: "cmn-profile" });
+  const det = el2.createEl("details", { cls: "cmn-profile" });
   det.createEl("summary", { text: "Full profile" });
   const text = (name, key, area = false) => {
     const st = new import_obsidian28.Setting(det).setName(name);
@@ -1527,6 +1527,30 @@ var PickModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
+var ActionsModal = class extends import_obsidian28.Modal {
+  constructor(plugin, title, desc, actions) {
+    super(plugin.app);
+    this.title = title;
+    this.desc = desc;
+    this.actions = actions;
+  }
+  onOpen() {
+    scopeEl(this.contentEl);
+    this.titleEl.setText(this.title);
+    if (this.desc) this.contentEl.createEl("p", { cls: "cmn-muted", text: this.desc });
+    const wrap = this.contentEl.createDiv({ cls: "cmn-actions-list" });
+    for (const a of this.actions) {
+      const b = wrap.createEl("button", { text: a.label, cls: a.cta ? "mod-cta" : a.warn ? "mod-warning" : "" });
+      b.onclick = async () => {
+        this.close();
+        await a.run();
+      };
+    }
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 
 // src/commsview.ts
 var import_obsidian29 = require("obsidian");
@@ -1540,8 +1564,8 @@ function when(iso) {
   const today = localDate((/* @__PURE__ */ new Date()).toISOString());
   return localDate(iso) === today ? localTime(iso) : `${localDate(iso)} ${localTime(iso)}`;
 }
-function speakerPicker(el, plugin, onChange) {
-  const row = el.createDiv({ cls: "cmn-speaker" });
+function speakerPicker(el2, plugin, onChange) {
+  const row = el2.createDiv({ cls: "cmn-speaker" });
   row.createSpan({ cls: "cmn-muted", text: "Writing as:" });
   const cur = new Set(plugin.speaker());
   for (const m of activeMembers(plugin.state)) {
@@ -1630,11 +1654,11 @@ function renderChat(root, plugin, ui) {
     ui.rerender();
   };
 }
-function renderMessage(el, plugin, ui, m) {
+function renderMessage(el2, plugin, ui, m) {
   var _a, _b;
   const s = plugin.state;
   const c = plugin.comms;
-  const box = el.createDiv({ cls: "cmn-msg" });
+  const box = el2.createDiv({ cls: "cmn-msg" });
   const head = box.createDiv({ cls: "cmn-msg-head" });
   head.createSpan({ cls: "cmn-msg-who", text: m.by.length ? namesOf(s, m.by) : "Unsigned" });
   head.createSpan({ cls: "cmn-muted", text: ` ${when(m.at)}${m.history.length ? " \xB7 edited" : ""}` });
@@ -2095,11 +2119,594 @@ ${t.body}` : t.body;
   if ((jui.page + 1) * PAGE < dates.length) nav.createEl("button", { text: "Older" }).onclick = () => (jui.page += 1, ui.rerender());
 }
 
+// src/mapview.ts
+var import_obsidian31 = require("obsidian");
+
+// src/maps.ts
+var WORLD = 1e3;
+var BUILT_IN_REL_TYPES = [
+  { id: "rt-close", name: "Close", color: "#c77dba", directed: false, builtIn: true, deleted: false },
+  { id: "rt-family", name: "Family", color: "#d9a441", directed: false, builtIn: true, deleted: false },
+  { id: "rt-friends", name: "Friends", color: "#6fa8dc", directed: false, builtIn: true, deleted: false },
+  { id: "rt-looks-out", name: "Looks out for", color: "#7fb069", directed: true, builtIn: true, deleted: false },
+  { id: "rt-works-with", name: "Works with", color: "#9a9a9a", directed: false, builtIn: true, deleted: false },
+  { id: "rt-tension", name: "Tension", color: "#e07a5f", directed: false, builtIn: true, deleted: false }
+];
+var str4 = (v) => typeof v === "string" ? v : "";
+var num = (v) => typeof v === "number" && isFinite(v) ? Math.max(0, Math.min(WORLD, v)) : NaN;
+function foldMaps(events) {
+  var _a;
+  const m = { types: new Map(BUILT_IN_REL_TYPES.map((t) => [t.id, { ...t }])), relations: /* @__PURE__ */ new Map(), nodePos: /* @__PURE__ */ new Map(), places: /* @__PURE__ */ new Map(), areas: /* @__PURE__ */ new Map(), pins: /* @__PURE__ */ new Map(), background: "" };
+  const sorted = [...events].sort((a, b) => a.at === b.at ? a.id.localeCompare(b.id) : a.at.localeCompare(b.at));
+  for (const e of sorted) {
+    const target = str4(e.target);
+    switch (e.t) {
+      case "reltype":
+        m.types.set(e.id, { id: e.id, name: str4(e.name) || "Connection", color: str4(e.color) || "#999999", directed: e.directed === true, builtIn: false, deleted: false });
+        break;
+      case "rel": {
+        const a = str4(e.a);
+        const b = str4(e.b);
+        if (a && b && a !== b) m.relations.set(e.id, { id: e.id, a, b, type: str4(e.type) || "rt-close", note: str4(e.note), deleted: false });
+        break;
+      }
+      case "nodepos": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.nodePos.set(str4(e.member), { x, y });
+        break;
+      }
+      case "unpin":
+        m.nodePos.delete(str4(e.member));
+        break;
+      case "place": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (!isNaN(x) && !isNaN(y)) m.places.set(e.id, { id: e.id, name: str4(e.name) || "Place", x, y, note: str4(e.note), color: str4(e.color), deleted: false });
+        break;
+      }
+      case "area": {
+        const pts = (Array.isArray(e.points) ? e.points : []).map((p) => ({ x: num(p.x), y: num(p.y) })).filter((p) => !isNaN(p.x) && !isNaN(p.y));
+        if (pts.length >= 3) m.areas.set(e.id, { id: e.id, name: str4(e.name), points: pts, color: str4(e.color) || "#6f8079", deleted: false });
+        break;
+      }
+      case "mpin": {
+        const x = num(e.x);
+        const y = num(e.y);
+        if (str4(e.member) && !isNaN(x) && !isNaN(y)) m.pins.set(str4(e.member), { member: str4(e.member), x, y });
+        break;
+      }
+      case "unmpin":
+        m.pins.delete(str4(e.member));
+        break;
+      case "mapbg":
+        m.background = str4(e.path);
+        break;
+      case "move": {
+        const x = num(e.x);
+        const y = num(e.y);
+        const p = m.places.get(target);
+        if (p && !isNaN(x) && !isNaN(y)) {
+          p.x = x;
+          p.y = y;
+        }
+        break;
+      }
+      case "edit": {
+        const f = (_a = e.fields) != null ? _a : {};
+        const p = m.places.get(target);
+        if (p) {
+          if (typeof f.name === "string" && f.name.trim()) p.name = f.name.trim();
+          if (typeof f.note === "string") p.note = f.note;
+          if (typeof f.color === "string") p.color = f.color;
+        }
+        const a = m.areas.get(target);
+        if (a) {
+          if (typeof f.name === "string") a.name = f.name;
+          if (typeof f.color === "string" && f.color) a.color = f.color;
+        }
+        const r = m.relations.get(target);
+        if (r) {
+          if (typeof f.type === "string" && f.type) r.type = f.type;
+          if (typeof f.note === "string") r.note = f.note;
+        }
+        const t = m.types.get(target);
+        if (t && !t.builtIn) {
+          if (typeof f.name === "string" && f.name.trim()) t.name = f.name.trim();
+          if (typeof f.color === "string" && f.color) t.color = f.color;
+        }
+        break;
+      }
+      case "delete":
+      case "restore": {
+        const v = e.t === "delete";
+        for (const map of [m.relations, m.places, m.areas, m.types]) {
+          const x = map.get(target);
+          if (x) x.deleted = v;
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+  return m;
+}
+function liveRelations(m, members) {
+  return [...m.relations.values()].filter((r) => {
+    var _a;
+    return !r.deleted && members.has(r.a) && members.has(r.b) && !((_a = m.types.get(r.type)) == null ? void 0 : _a.deleted);
+  });
+}
+function layoutNodes(ids, rels, pinned, iterations = 60) {
+  const pos = /* @__PURE__ */ new Map();
+  const sorted = [...ids].sort();
+  const free = sorted.filter((id) => !pinned.has(id));
+  const c = WORLD / 2;
+  const r = WORLD * 0.35;
+  sorted.forEach((id, i) => {
+    const p = pinned.get(id);
+    if (p) pos.set(id, { ...p });
+    else {
+      const a = 2 * Math.PI * i / Math.max(1, sorted.length) - Math.PI / 2;
+      pos.set(id, { x: c + r * Math.cos(a), y: c + r * Math.sin(a) });
+    }
+  });
+  if (free.length === 0) return pos;
+  const k = WORLD / Math.max(2, Math.sqrt(sorted.length) * 2.2);
+  for (let it = 0; it < iterations; it++) {
+    const disp = new Map(free.map((id) => [id, { x: 0, y: 0 }]));
+    for (const a of free) {
+      const pa = pos.get(a);
+      for (const b of sorted) {
+        if (a === b) continue;
+        const pb = pos.get(b);
+        let dx = pa.x - pb.x;
+        let dy = pa.y - pb.y;
+        let d = Math.hypot(dx, dy);
+        if (d < 0.01) {
+          dx = 0.01;
+          dy = 0;
+          d = 0.01;
+        }
+        const f = k * k / d;
+        disp.get(a).x += dx / d * f;
+        disp.get(a).y += dy / d * f;
+      }
+    }
+    for (const rel of rels) {
+      const pa = pos.get(rel.a);
+      const pb = pos.get(rel.b);
+      if (!pa || !pb) continue;
+      const dx = pa.x - pb.x;
+      const dy = pa.y - pb.y;
+      const d = Math.max(0.01, Math.hypot(dx, dy));
+      const f = d * d / k;
+      if (disp.has(rel.a)) {
+        disp.get(rel.a).x -= dx / d * f;
+        disp.get(rel.a).y -= dy / d * f;
+      }
+      if (disp.has(rel.b)) {
+        disp.get(rel.b).x += dx / d * f;
+        disp.get(rel.b).y += dy / d * f;
+      }
+    }
+    const temp = WORLD / 10 * (1 - it / iterations);
+    for (const id of free) {
+      const d = disp.get(id);
+      const len = Math.max(0.01, Math.hypot(d.x, d.y));
+      const p = pos.get(id);
+      p.x = Math.max(40, Math.min(WORLD - 40, p.x + d.x / len * Math.min(len, temp)));
+      p.y = Math.max(40, Math.min(WORLD - 40, p.y + d.y / len * Math.min(len, temp)));
+    }
+  }
+  return pos;
+}
+function zoomAt(v, factor, at, min = 120, max = WORLD * 2) {
+  const w = Math.max(min, Math.min(max, v.w / factor));
+  const s = w / v.w;
+  return { x: at.x - (at.x - v.x) * s, y: at.y - (at.y - v.y) * s, w };
+}
+function fitView(aspect) {
+  if (aspect < 1) {
+    const w = WORLD / aspect;
+    return { x: -(w - WORLD) / 2, y: 0, w };
+  }
+  return { x: 0, y: -(WORLD * aspect - WORLD) / 2, w: WORLD };
+}
+function clampPoint(p) {
+  return { x: Math.max(0, Math.min(WORLD, p.x)), y: Math.max(0, Math.min(WORLD, p.y)) };
+}
+
+// src/mapview.ts
+var NS = "http://www.w3.org/2000/svg";
+var PALETTE = ["#c77dba", "#d9a441", "#6fa8dc", "#7fb069", "#e07a5f", "#9a8fd1", "#5fa3a3", "#c9a46a"];
+function newMapUi() {
+  return { mode: "relationships", relView: { x: 0, y: 0, w: 0 }, worldView: { x: 0, y: 0, w: 0 }, tool: "move", draft: [], connectFrom: "", memberToPlace: "" };
+}
+function el(parent, tag, attrs = {}) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v));
+  parent.appendChild(e);
+  return e;
+}
+function surface(svg, view, h) {
+  const aspect = () => (svg.clientHeight || 1) / (svg.clientWidth || 1);
+  const apply = () => {
+    if (!view.w && svg.clientWidth) Object.assign(view, fitView(aspect()));
+    const w = view.w || WORLD;
+    svg.setAttribute("viewBox", `${view.x} ${view.y} ${w} ${w * aspect()}`);
+  };
+  apply();
+  window.requestAnimationFrame(apply);
+  const toWorld = (cx, cy) => {
+    const r = svg.getBoundingClientRect();
+    return { x: view.x + (cx - r.left) / (r.width || 1) * view.w, y: view.y + (cy - r.top) / (r.height || 1) * view.w * aspect() };
+  };
+  const pts = /* @__PURE__ */ new Map();
+  let start = null;
+  let moved = false;
+  let dragId = null;
+  let dragEl = null;
+  let pinch = null;
+  svg.addEventListener("pointerdown", (e) => {
+    var _a;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch (e2) {
+    }
+    if (pts.size === 1) {
+      start = { x: e.clientX, y: e.clientY };
+      moved = false;
+      const item = e.target.closest("[data-item]");
+      dragId = (item == null ? void 0 : item.dataset.drag) === "1" ? (_a = item.dataset.item) != null ? _a : null : null;
+      dragEl = dragId ? item : null;
+    } else if (pts.size === 2) {
+      const [a, b] = [...pts.values()];
+      pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), w: view.w };
+      dragId = null;
+    }
+  });
+  svg.addEventListener("pointermove", (e) => {
+    const prev = pts.get(e.pointerId);
+    if (!prev) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 2 && pinch) {
+      const [a, b] = [...pts.values()];
+      const d = Math.hypot(a.x - b.x, a.y - b.y);
+      const mid = toWorld((a.x + b.x) / 2, (a.y + b.y) / 2);
+      const next = zoomAt({ ...view, w: pinch.w }, d / (pinch.d || 1), mid);
+      Object.assign(view, next);
+      apply();
+      moved = true;
+      return;
+    }
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) moved = true;
+    if (!moved) return;
+    if (dragEl) {
+      const p = clampPoint(toWorld(e.clientX, e.clientY));
+      dragEl.setAttribute("transform", `translate(${p.x} ${p.y})`);
+    } else {
+      const r = svg.getBoundingClientRect();
+      const k = view.w / (r.width || 1);
+      view.x -= (e.clientX - prev.x) * k;
+      view.y -= (e.clientY - prev.y) * k;
+      apply();
+    }
+  });
+  const end = (e) => {
+    var _a;
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (pts.size > 0) return;
+    if (pinch) {
+      pinch = null;
+      h.onView({ ...view });
+      return;
+    }
+    const p = clampPoint(toWorld(e.clientX, e.clientY));
+    if (!moved) {
+      const item = e.target.closest("[data-item]");
+      h.onTap(p, (_a = item == null ? void 0 : item.dataset.item) != null ? _a : null);
+    } else if (dragId) h.onDrop(dragId, p);
+    else h.onView({ ...view });
+    start = null;
+    dragId = null;
+    dragEl = null;
+  };
+  svg.addEventListener("pointerup", end);
+  svg.addEventListener("pointercancel", end);
+  svg.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      Object.assign(view, zoomAt(view, e.deltaY < 0 ? 1.15 : 1 / 1.15, toWorld(e.clientX, e.clientY)));
+      apply();
+      h.onView({ ...view });
+    },
+    { passive: false }
+  );
+}
+function zoomButtons(bar, view, rerender) {
+  bar.createEl("button", { text: "\uFF0B", attr: { "aria-label": "Zoom in" } }).onclick = () => {
+    if (!view.w) Object.assign(view, { x: 0, y: 0, w: WORLD });
+    Object.assign(view, zoomAt(view, 1.4, { x: view.x + view.w / 2, y: view.y + view.w / 2 }));
+    rerender();
+  };
+  bar.createEl("button", { text: "\uFF0D", attr: { "aria-label": "Zoom out" } }).onclick = () => {
+    if (!view.w) Object.assign(view, { x: 0, y: 0, w: WORLD });
+    Object.assign(view, zoomAt(view, 1 / 1.4, { x: view.x + view.w / 2, y: view.y + view.w / 2 }));
+    rerender();
+  };
+  bar.createEl("button", { text: "Fit" }).onclick = () => {
+    Object.assign(view, { x: 0, y: 0, w: 0 });
+    rerender();
+  };
+}
+function renderMaps(root, plugin, ui, rerender) {
+  const maps = foldMaps(plugin.loadInfo.events);
+  const tabs = root.createDiv({ cls: "cmn-chips" });
+  for (const [m, label] of [["relationships", "Relationships"], ["world", "Inner world"]]) {
+    tabs.createEl("button", { cls: "cmn-chip" + (ui.mode === m ? " is-on" : ""), text: label }).onclick = () => {
+      ui.mode = m;
+      ui.tool = "move";
+      ui.draft = [];
+      ui.connectFrom = "";
+      rerender();
+    };
+  }
+  if (ui.mode === "relationships") renderRelationships(root, plugin, ui, maps, rerender);
+  else renderWorld(root, plugin, ui, maps, rerender);
+}
+function renderRelationships(root, plugin, ui, maps, rerender) {
+  var _a;
+  const s = plugin.state;
+  const members = activeMembers(s);
+  const ids = members.map((m) => m.id);
+  const rels = liveRelations(maps, new Set(ids));
+  const types = [...maps.types.values()].filter((t) => !t.deleted);
+  const bar = root.createDiv({ cls: "cmn-line-actions cmn-mapbar" });
+  const connecting = ui.tool === "connect";
+  bar.createEl("button", { cls: connecting ? "mod-cta" : "", text: connecting ? ui.connectFrom ? `Now tap who ${nameOf(s, ui.connectFrom)} connects to` : "Tap the first person" : "Connect two" }).onclick = () => {
+    ui.tool = connecting ? "move" : "connect";
+    ui.connectFrom = "";
+    rerender();
+  };
+  bar.createEl("button", { text: "+ Connection type" }).onclick = () => new TextModal(plugin, "New connection type", 'A name, e.g. "mentor" or "shares a room".', "", async (v) => {
+    if (!v.trim()) return;
+    await plugin.record("reltype", { name: v.trim(), color: PALETTE[maps.types.size % PALETTE.length], directed: false });
+  }).open();
+  if (maps.nodePos.size) bar.createEl("button", { text: "Unpin all" }).onclick = async () => {
+    for (const m of maps.nodePos.keys()) await plugin.record("unpin", { member: m });
+  };
+  zoomButtons(bar, ui.relView, rerender);
+  if (members.length === 0) {
+    root.createEl("p", { cls: "cmn-muted", text: "Add members on the Today tab to see them here." });
+    return;
+  }
+  const svg = el(root.createDiv({ cls: "cmn-map" }), "svg", { class: "cmn-map-svg", role: "img", "aria-label": "Relationship map" });
+  const defs = el(svg, "defs");
+  for (const t of types) {
+    const mk = el(defs, "marker", { id: `arrow-${t.id}`, viewBox: "0 0 10 10", refX: 22, refY: 5, markerWidth: 6, markerHeight: 6, orient: "auto-start-reverse" });
+    el(mk, "path", { d: "M 0 0 L 10 5 L 0 10 z", fill: t.color });
+  }
+  el(svg, "rect", { x: 0, y: 0, width: WORLD, height: WORLD, class: "cmn-map-bg" });
+  const pos = layoutNodes(ids, rels, maps.nodePos);
+  for (const r of rels) {
+    const a = pos.get(r.a);
+    const b = pos.get(r.b);
+    const t = (_a = maps.types.get(r.type)) != null ? _a : types[0];
+    const g = el(svg, "g", { "data-item": `rel:${r.id}` });
+    el(g, "line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: "transparent", "stroke-width": 24 });
+    const line = el(g, "line", { x1: a.x, y1: a.y, x2: b.x, y2: b.y, stroke: t.color, "stroke-width": 4, class: "cmn-edge" });
+    if (t.directed) line.setAttribute("marker-end", `url(#arrow-${t.id})`);
+  }
+  for (const m of members) {
+    const p = pos.get(m.id);
+    const g = el(svg, "g", { "data-item": `node:${m.id}`, "data-drag": "1", transform: `translate(${p.x} ${p.y})`, class: "cmn-node" + (ui.connectFrom === m.id ? " is-on" : "") });
+    el(g, "circle", { r: 22, fill: m.color || "#888888" });
+    if (maps.nodePos.has(m.id)) el(g, "circle", { r: 5, cx: 16, cy: -16, class: "cmn-pin-dot" });
+    const label = el(g, "text", { y: 40, "text-anchor": "middle", class: "cmn-map-label" });
+    label.textContent = m.name || "Unnamed";
+  }
+  surface(svg, ui.relView, {
+    onView: (v) => Object.assign(ui.relView, v),
+    onDrop: (id, p) => {
+      if (id.startsWith("node:")) void plugin.record("nodepos", { member: id.slice(5), x: Math.round(p.x), y: Math.round(p.y) });
+    },
+    onTap: (_p, id) => {
+      var _a2, _b, _c;
+      if (!id) return;
+      if (id.startsWith("node:")) {
+        const mid = id.slice(5);
+        if (ui.tool === "connect") {
+          if (!ui.connectFrom) {
+            ui.connectFrom = mid;
+            rerender();
+          } else if (ui.connectFrom !== mid) {
+            const a = ui.connectFrom;
+            ui.connectFrom = "";
+            ui.tool = "move";
+            new ActionsModal(plugin, `${nameOf(s, a)} and ${nameOf(s, mid)}`, "What kind of connection?", types.map((t) => ({ label: t.name, run: () => void plugin.record("rel", { a, b: mid, type: t.id }) }))).open();
+          }
+          return;
+        }
+        const m = s.members.get(mid);
+        new ActionsModal(plugin, (m == null ? void 0 : m.name) || "Unnamed", (_a2 = m == null ? void 0 : m.role) != null ? _a2 : "", [
+          { label: "Open profile", cta: true, run: () => new MemberModal(plugin, m).open() },
+          ...maps.nodePos.has(mid) ? [{ label: "Unpin (let it move)", run: () => void plugin.record("unpin", { member: mid }) }] : []
+        ]).open();
+        return;
+      }
+      if (id.startsWith("rel:")) {
+        const r = maps.relations.get(id.slice(4));
+        new ActionsModal(plugin, `${nameOf(s, r.a)} \u2014 ${nameOf(s, r.b)}`, (_c = (_b = maps.types.get(r.type)) == null ? void 0 : _b.name) != null ? _c : "", [
+          ...types.filter((t) => t.id !== r.type).map((t) => ({ label: `Make it "${t.name}"`, run: () => void plugin.record("edit", { target: r.id, fields: { type: t.id } }) })),
+          { label: "Remove connection", warn: true, run: () => void plugin.record("delete", { target: r.id }) }
+        ]).open();
+      }
+    }
+  });
+  const legend = root.createDiv({ cls: "cmn-chips" });
+  for (const t of types) {
+    const c = legend.createSpan({ cls: "cmn-legend", text: `${t.directed ? "\u2192 " : ""}${t.name}` });
+    c.style.setProperty("--cmn-member", t.color);
+    if (!t.builtIn)
+      c.onclick = () => new ActionsModal(plugin, t.name, "Custom connection type", [
+        { label: "Rename", run: () => new TextModal(plugin, "Rename", "", t.name, (v) => v.trim() ? plugin.record("edit", { target: t.id, fields: { name: v.trim() } }).then(() => {
+        }) : Promise.resolve()).open() },
+        { label: "Remove type", warn: true, run: () => void plugin.record("delete", { target: t.id }) }
+      ]).open();
+  }
+  root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag a person to pin them; tap for their profile." });
+}
+function renderWorld(root, plugin, ui, maps, rerender) {
+  const s = plugin.state;
+  const bar = root.createDiv({ cls: "cmn-line-actions cmn-mapbar" });
+  const tool = (id, label) => {
+    bar.createEl("button", { cls: ui.tool === id ? "mod-cta" : "", text: label }).onclick = () => {
+      ui.tool = ui.tool === id ? "move" : id;
+      ui.draft = [];
+      if (ui.tool === "member")
+        new PickModal(plugin, "Who goes on the map?", async ([m]) => {
+          ui.memberToPlace = m;
+          rerender();
+        }).open();
+      rerender();
+    };
+  };
+  tool("place", "Add place");
+  tool("area", "Draw area");
+  tool("member", "Place someone");
+  bar.createEl("button", { text: maps.background ? "Change background" : "Background image" }).onclick = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = "image/*";
+    input.onchange = async () => {
+      var _a;
+      const f = (_a = input.files) == null ? void 0 : _a[0];
+      if (!f) return;
+      try {
+        await plugin.record("mapbg", { path: await plugin.saveImage(f) });
+      } catch (e) {
+        new import_obsidian31.Notice(`Couldn't save the image: ${e.message}`);
+      }
+    };
+    input.click();
+  };
+  if (maps.background) bar.createEl("button", { text: "No background" }).onclick = () => void plugin.record("mapbg", { path: "" });
+  zoomButtons(bar, ui.worldView, rerender);
+  if (ui.tool === "area") {
+    const hint = root.createDiv({ cls: "cmn-line-actions" });
+    hint.createSpan({ cls: "cmn-muted", text: `Tap corners of the area (${ui.draft.length} so far).` });
+    if (ui.draft.length >= 3)
+      hint.createEl("button", { cls: "mod-cta", text: "Finish area" }).onclick = () => new TextModal(plugin, "Name this area", "Optional.", "", async (name) => {
+        await plugin.record("area", { name: name.trim(), points: ui.draft.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })), color: PALETTE[maps.areas.size % PALETTE.length] });
+        ui.draft = [];
+        ui.tool = "move";
+      }).open();
+    hint.createEl("button", { text: "Cancel" }).onclick = () => (ui.draft = [], ui.tool = "move", rerender());
+  } else if (ui.tool === "place") root.createDiv({ cls: "cmn-muted", text: "Tap where the place goes." });
+  else if (ui.tool === "member") root.createDiv({ cls: "cmn-muted", text: ui.memberToPlace ? `Tap where ${nameOf(s, ui.memberToPlace)} goes.` : "Pick someone first." });
+  const svg = el(root.createDiv({ cls: "cmn-map" }), "svg", { class: "cmn-map-svg", role: "img", "aria-label": "Inner world map" });
+  el(svg, "rect", { x: 0, y: 0, width: WORLD, height: WORLD, class: "cmn-map-bg" });
+  if (maps.background && plugin.app.vault.getAbstractFileByPath(maps.background)) {
+    el(svg, "image", { href: plugin.app.vault.adapter.getResourcePath(maps.background), x: 0, y: 0, width: WORLD, height: WORLD, preserveAspectRatio: "xMidYMid meet" });
+  }
+  for (const a of maps.areas.values()) {
+    if (a.deleted) continue;
+    const g = el(svg, "g", { "data-item": `area:${a.id}` });
+    el(g, "polygon", { points: a.points.map((p) => `${p.x},${p.y}`).join(" "), fill: a.color, "fill-opacity": 0.25, stroke: a.color, "stroke-width": 3 });
+    if (a.name) {
+      const cx = a.points.reduce((n, p) => n + p.x, 0) / a.points.length;
+      const cy = a.points.reduce((n, p) => n + p.y, 0) / a.points.length;
+      const t = el(g, "text", { x: cx, y: cy, "text-anchor": "middle", class: "cmn-map-label cmn-map-area-label" });
+      t.textContent = a.name;
+    }
+  }
+  if (ui.draft.length) el(svg, "polyline", { points: ui.draft.map((p) => `${p.x},${p.y}`).join(" "), fill: "none", stroke: "currentColor", "stroke-width": 3, "stroke-dasharray": "8 6", class: "cmn-draft" });
+  for (const p of maps.places.values()) {
+    if (p.deleted) continue;
+    const g = el(svg, "g", { "data-item": `place:${p.id}`, "data-drag": "1", transform: `translate(${p.x} ${p.y})`, class: "cmn-node" });
+    el(g, "rect", { x: -10, y: -10, width: 20, height: 20, rx: 4, fill: p.color || "#d9a441" });
+    const t = el(g, "text", { y: 32, "text-anchor": "middle", class: "cmn-map-label" });
+    t.textContent = p.name + (p.note ? " \u2197" : "");
+  }
+  for (const pin of maps.pins.values()) {
+    const m = s.members.get(pin.member);
+    if (!m || m.status === "archived") continue;
+    const g = el(svg, "g", { "data-item": `pin:${m.id}`, "data-drag": "1", transform: `translate(${pin.x} ${pin.y})`, class: "cmn-node" });
+    el(g, "circle", { r: 14, fill: m.color || "#888888" });
+    const t = el(g, "text", { y: -20, "text-anchor": "middle", class: "cmn-map-label" });
+    t.textContent = m.name || "Unnamed";
+  }
+  surface(svg, ui.worldView, {
+    onView: (v) => Object.assign(ui.worldView, v),
+    onDrop: (id, p) => {
+      const x = Math.round(p.x);
+      const y = Math.round(p.y);
+      if (id.startsWith("place:")) void plugin.record("move", { target: id.slice(6), x, y });
+      else if (id.startsWith("pin:")) void plugin.record("mpin", { member: id.slice(4), x, y });
+    },
+    onTap: (p, id) => {
+      if (ui.tool === "area") {
+        ui.draft.push(p);
+        rerender();
+        return;
+      }
+      if (ui.tool === "place") {
+        ui.tool = "move";
+        new TextModal(plugin, "Name this place", "", "", async (name) => {
+          await plugin.record("place", { name: name.trim() || "Place", x: Math.round(p.x), y: Math.round(p.y), note: "" });
+        }).open();
+        return;
+      }
+      if (ui.tool === "member") {
+        if (!ui.memberToPlace) return;
+        const m = ui.memberToPlace;
+        ui.tool = "move";
+        ui.memberToPlace = "";
+        void plugin.record("mpin", { member: m, x: Math.round(p.x), y: Math.round(p.y) });
+        return;
+      }
+      if (!id) return;
+      if (id.startsWith("place:")) {
+        const pl = maps.places.get(id.slice(6));
+        new ActionsModal(plugin, pl.name, pl.note ? `Linked to ${pl.note}` : "", [
+          ...pl.note ? [{ label: "Open linked note", cta: true, run: () => void plugin.app.workspace.openLinkText(pl.note, "", true) }] : [],
+          { label: pl.note ? "Change linked note" : "Link a note", run: () => new TextModal(plugin, "Note to link", "A note name or path, e.g. Places/Library", pl.note, (v) => plugin.record("edit", { target: pl.id, fields: { note: v.trim() } }).then(() => {
+          })).open() },
+          { label: "Rename", run: () => new TextModal(plugin, "Rename", "", pl.name, (v) => v.trim() ? plugin.record("edit", { target: pl.id, fields: { name: v.trim() } }).then(() => {
+          }) : Promise.resolve()).open() },
+          { label: "Remove place", warn: true, run: () => void plugin.record("delete", { target: pl.id }) }
+        ]).open();
+      } else if (id.startsWith("pin:")) {
+        const mid = id.slice(4);
+        new ActionsModal(plugin, nameOf(s, mid), "", [
+          { label: "Open profile", cta: true, run: () => new MemberModal(plugin, s.members.get(mid)).open() },
+          { label: "Take off the map", run: () => void plugin.record("unmpin", { member: mid }) }
+        ]).open();
+      } else if (id.startsWith("area:")) {
+        const a = maps.areas.get(id.slice(5));
+        new ActionsModal(plugin, a.name || "Area", "", [
+          { label: "Rename", run: () => new TextModal(plugin, "Rename", "", a.name, (v) => plugin.record("edit", { target: a.id, fields: { name: v.trim() } }).then(() => {
+          })).open() },
+          ...PALETTE.slice(0, 4).map((c, i) => ({ label: `Colour ${i + 1}`, run: () => void plugin.record("edit", { target: a.id, fields: { color: c } }) })),
+          { label: "Remove area", warn: true, run: () => void plugin.record("delete", { target: a.id }) }
+        ]).open();
+      }
+    }
+  });
+  root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag places and people to move them; tap for options." });
+}
+
 // src/view.ts
 var VIEW_TYPE_COMMONS = "commons-view";
 var HERE_TOKEN = "@here";
 var RECENT_DAYS = 7;
-var CommonsView = class extends import_obsidian31.ItemView {
+var CommonsView = class extends import_obsidian32.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -2109,6 +2716,7 @@ var CommonsView = class extends import_obsidian31.ItemView {
     this.day = {};
     this.section = "today";
     this.jui = { page: 0, member: "", topic: "" };
+    this.mui = newMapUi();
     this.pendingRefresh = false;
     this.ui = {
       revealed: this.revealed,
@@ -2177,6 +2785,7 @@ var CommonsView = class extends import_obsidian31.ItemView {
       else if (this.section === "notices") renderNotices(root, this.plugin);
       else if (this.section === "polls") renderPolls(root, this.plugin, this.ui);
       else if (this.section === "journal") await renderJournal(root, this.plugin, this.ui, this.jui);
+      else if (this.section === "map") renderMaps(root, this.plugin, this.mui, () => void this.refresh());
       else renderSearch(root, this.plugin, this.ui);
     } catch (e) {
       console.error("commons: view failed to render", e);
@@ -2198,7 +2807,7 @@ var CommonsView = class extends import_obsidian31.ItemView {
       polls: [...c.polls.values()].filter((p) => pollOpen(p, now) && here.some((m) => !p.votes.has(m))).length
     };
     const bar = root.createDiv({ cls: "cmn-sections", attr: { role: "tablist" } });
-    const items = [["today", "Today"], ["journal", "Journal"], ["chat", "Chat"], ["letters", "Letters"], ["notices", "Notices"], ["polls", "Polls"], ["search", "Search"]];
+    const items = [["today", "Today"], ["journal", "Journal"], ["chat", "Chat"], ["letters", "Letters"], ["notices", "Notices"], ["polls", "Polls"], ["map", "Map"], ["search", "Search"]];
     for (const [id, label] of items) {
       const n = (_c = badge[id]) != null ? _c : 0;
       const b = bar.createEl("button", { cls: "cmn-section" + (this.section === id ? " is-on" : ""), text: n ? `${label} (${n})` : label, attr: { role: "tab", "aria-selected": String(this.section === id) } });
@@ -2291,11 +2900,11 @@ var CommonsView = class extends import_obsidian31.ItemView {
       const card = root.createDiv({ cls: "cmn-card" });
       card.createEl("h3", { text: "This week" });
       const items = [
-        ...handoffs.map((h) => ({ when: h.when, render: (el) => {
+        ...handoffs.map((h) => ({ when: h.when, render: (el2) => {
           const held = h.held && !this.revealed.has(h.id);
-          el.createSpan({ cls: "cmn-line-label", text: `${localDate(h.when)} ${localTime(h.when)} handoff` });
-          el.createSpan({ cls: "cmn-line-text", text: held ? `Held, from ${namesOf(s, h.by)}` : handoffSummary(s, { ...h, held: false }) });
-          const b = el.createDiv({ cls: "cmn-line-actions" });
+          el2.createSpan({ cls: "cmn-line-label", text: `${localDate(h.when)} ${localTime(h.when)} handoff` });
+          el2.createSpan({ cls: "cmn-line-text", text: held ? `Held, from ${namesOf(s, h.by)}` : handoffSummary(s, { ...h, held: false }) });
+          const b = el2.createDiv({ cls: "cmn-line-actions" });
           if (held) b.createEl("button", { text: "Read" }).onclick = () => {
             this.revealed.add(h.id);
             void this.refresh();
@@ -2303,11 +2912,11 @@ var CommonsView = class extends import_obsidian31.ItemView {
           if (h.acks.length) b.createSpan({ cls: "cmn-muted", text: `seen by ${namesOf(s, h.acks[0].by)}` });
           b.createEl("button", { text: "Remove" }).onclick = () => void this.plugin.record("delete", { target: h.id });
         } })),
-        ...gaps.map((g) => ({ when: g.from, render: (el) => {
-          el.createSpan({ cls: "cmn-line-label", text: `${localDate(g.from)} ${localTime(g.from)}\u2013${localTime(g.to)} gap` });
+        ...gaps.map((g) => ({ when: g.from, render: (el2) => {
+          el2.createSpan({ cls: "cmn-line-label", text: `${localDate(g.from)} ${localTime(g.from)}\u2013${localTime(g.to)} gap` });
           const who = g.claims.map((c2) => nameOf(s, c2.member));
-          el.createSpan({ cls: "cmn-line-text", text: [g.clues && `clues: ${g.clues}`, who.length && `${who.join(", ")} said "that was me"`].filter(Boolean).join(" \xB7 ") || "No clues yet." });
-          const b = el.createDiv({ cls: "cmn-line-actions" });
+          el2.createSpan({ cls: "cmn-line-text", text: [g.clues && `clues: ${g.clues}`, who.length && `${who.join(", ")} said "that was me"`].filter(Boolean).join(" \xB7 ") || "No clues yet." });
+          const b = el2.createDiv({ cls: "cmn-line-actions" });
           b.createEl("button", { text: "That was me" }).onclick = () => new PickModal(this.plugin, "Who was it?", async ([id]) => void await this.plugin.record("claim", { target: g.id, member: id })).open();
           b.createEl("button", { text: "Clues" }).onclick = () => new TextModal(this.plugin, "Clues", "", g.clues, (v) => this.plugin.record("edit", { target: g.id, fields: { clues: v } }).then(() => {
           })).open();
@@ -2341,6 +2950,14 @@ var CommonsView = class extends import_obsidian31.ItemView {
       ...[...c.notices.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "notice", at: x.at })),
       ...[...c.polls.values()].filter((x) => x.deleted).map((x) => ({ id: x.id, kind: "poll", at: x.at }))
     ];
+    const maps = foldMaps(this.plugin.loadInfo.events);
+    const atOf = (id) => {
+      var _a2, _b;
+      return (_b = (_a2 = this.plugin.loadInfo.events.find((e) => e.id === id)) == null ? void 0 : _a2.at) != null ? _b : "";
+    };
+    for (const [kind, map] of [["place", maps.places], ["area", maps.areas], ["connection", maps.relations]]) {
+      for (const x of map.values()) if (x.deleted) goneComms.push({ id: x.id, kind, at: atOf(x.id) });
+    }
     const gone = [...removed(s), ...goneComms].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 20);
     if (gone.length) {
       const det = root.createEl("details", { cls: "cmn-card" });
@@ -2361,8 +2978,8 @@ var CommonsView = class extends import_obsidian31.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian32 = require("obsidian");
-var CommonsSettingTab = class extends import_obsidian32.PluginSettingTab {
+var import_obsidian33 = require("obsidian");
+var CommonsSettingTab = class extends import_obsidian33.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -2381,23 +2998,23 @@ var CommonsSettingTab = class extends import_obsidian32.PluginSettingTab {
       cofronting: "More than one here"
     };
     for (const k of Object.keys(DEFAULT_TERMS)) {
-      new import_obsidian32.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
+      new import_obsidian33.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
     }
-    new import_obsidian32.Setting(containerEl).addButton(
+    new import_obsidian33.Setting(containerEl).addButton(
       (b) => b.setButtonText("Save words").setCta().onClick(async () => {
         if (Object.keys(terms).length) await this.plugin.setTerms(terms);
         this.display();
       })
     );
     containerEl.createEl("h3", { text: "Behaviour" });
-    new import_obsidian32.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
+    new import_obsidian33.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
       (t) => t.setValue(this.plugin.settings.offerHandoffOnSwitch).onChange(async (v) => {
         this.plugin.settings.offerHandoffOnSwitch = v;
         await this.plugin.saveSettings();
       })
     );
     containerEl.createEl("h3", { text: "Storage" });
-    new import_obsidian32.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
+    new import_obsidian33.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
       (t) => t.setValue(this.plugin.settings.folder).onChange(async (v) => {
         this.plugin.settings.folder = v.trim() || "Commons";
         await this.plugin.saveSettings();
@@ -2417,7 +3034,7 @@ var CommonsSettingTab = class extends import_obsidian32.PluginSettingTab {
 
 // src/main.ts
 var DEFAULTS = { folder: "Commons", offerHandoffOnSwitch: true };
-var CommonsPlugin = class extends import_obsidian33.Plugin {
+var CommonsPlugin = class extends import_obsidian34.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULTS };
@@ -2463,7 +3080,7 @@ var CommonsPlugin = class extends import_obsidian33.Plugin {
       name: "Write Commons lines into past daily notes (creates missing notes)",
       callback: async () => {
         const r = await mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date(), { allowCreatePast: true });
-        new import_obsidian33.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
+        new import_obsidian34.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
       }
     });
     this.registerObsidianProtocolHandler("commons", (p) => {
@@ -2475,7 +3092,7 @@ var CommonsPlugin = class extends import_obsidian33.Plugin {
       else void this.openView();
     });
     this.addSettingTab(new CommonsSettingTab(this.app, this));
-    const reload = (0, import_obsidian33.debounce)(() => void this.reload(), 400, true);
+    const reload = (0, import_obsidian34.debounce)(() => void this.reload(), 400, true);
     this.registerEvent(this.app.vault.on("modify", (f) => this.store.isLogPath(f.path) && reload()));
     this.registerEvent(this.app.vault.on("create", (f) => this.store.isLogPath(f.path) && reload()));
     this.app.workspace.onLayoutReady(() => void this.reload(true));
@@ -2519,7 +3136,7 @@ var CommonsPlugin = class extends import_obsidian33.Plugin {
     await this.store.record([e]);
     await this.reload();
     const waiting = this.store.outbox().length;
-    if (waiting) new import_obsidian33.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
+    if (waiting) new import_obsidian34.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
     return e.id;
   }
   // ── actions ──────────────────────────────────────────────────────────────
@@ -2534,13 +3151,13 @@ var CommonsPlugin = class extends import_obsidian33.Plugin {
       frag.createSpan({ text: "Want to leave a handoff for whoever's next? " });
       const b = frag.createEl("button", { text: "Write one" });
       b.onclick = () => this.openHandoff(prev);
-      new import_obsidian33.Notice(frag, 8e3);
+      new import_obsidian34.Notice(frag, 8e3);
     }
   }
   async logGap() {
     const w = gapWindow(this.state, /* @__PURE__ */ new Date());
     if (!w) {
-      new import_obsidian33.Notice("Commons: nothing recorded yet, so there's no gap to log.");
+      new import_obsidian34.Notice("Commons: nothing recorded yet, so there's no gap to log.");
       return;
     }
     const id = await this.record("gap", { from: w.from, to: w.to, clues: "" });
@@ -2623,7 +3240,7 @@ var CommonsPlugin = class extends import_obsidian33.Plugin {
     });
     await this.store.record([e]);
     await this.reload();
-    new import_obsidian33.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
+    new import_obsidian34.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
   }
   /** Write any of this device's entries that couldn't reach today's note yet. */
   async retryJournal() {
