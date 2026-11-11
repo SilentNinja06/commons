@@ -286,6 +286,46 @@ var CommonsStore = class {
   }
 };
 
+// src/drafts.ts
+var KEY = "commons:drafts";
+var Drafts = class {
+  constructor(app) {
+    this.app = app;
+    this.map = {};
+    try {
+      const v = app.loadLocalStorage(KEY);
+      if (v && typeof v === "object") this.map = { ...v };
+    } catch (e) {
+    }
+  }
+  get(key) {
+    return this.map[key];
+  }
+  set(key, value) {
+    if (value === "") delete this.map[key];
+    else this.map[key] = value;
+    this.persist();
+  }
+  clear(key) {
+    if (key in this.map) {
+      delete this.map[key];
+      this.persist();
+    }
+  }
+  persist() {
+    try {
+      this.app.saveLocalStorage(KEY, Object.keys(this.map).length ? this.map : null);
+    } catch (e) {
+    }
+  }
+  /** Restore `el`'s draft (if any) and keep it updated as the person types. */
+  bind(el2, key) {
+    const d = this.get(key);
+    if (d !== void 0) el2.value = d;
+    el2.addEventListener("input", () => this.set(key, el2.value));
+  }
+};
+
 // src/model.ts
 var DEFAULT_TERMS = {
   collective: "collective",
@@ -1868,6 +1908,20 @@ function clampPoint(p) {
 }
 
 // src/commsview.ts
+function submit(btn, fn) {
+  btn.onclick = async () => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    try {
+      await fn();
+    } catch (e) {
+      console.error("commons: submit failed", e);
+      new import_obsidian29.Notice("Not sent \u2014 your words are still here. Try again.");
+    } finally {
+      btn.disabled = false;
+    }
+  };
+}
 function ask(plugin, title, value, then) {
   new TextModal(plugin, title, "", value, async (v) => {
     await then(v);
@@ -1947,10 +2001,15 @@ function renderChat(root, plugin, ui) {
     };
   }
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "3", placeholder: `Message #${ch.name}` } });
+  const dkey = `chat:${ch.id}`;
+  plugin.drafts.bind(ta, dkey);
   const file = comp.createEl("input", { attr: { type: "file", accept: "image/*", multiple: "" } });
-  let held = false;
-  new import_obsidian29.Setting(comp).setName("Hold it").setDesc("Behind a tap for everyone; never in previews or search. Not encryption.").addToggle((t) => t.onChange((v) => held = v));
-  comp.createEl("button", { cls: "mod-cta", text: "Send" }).onclick = async () => {
+  let held = plugin.drafts.get(`${dkey}:held`) === "1";
+  new import_obsidian29.Setting(comp).setName("Hold it").setDesc("Behind a tap for everyone; never in previews or search. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => {
+    held = v;
+    plugin.drafts.set(`${dkey}:held`, v ? "1" : "");
+  }));
+  submit(comp.createEl("button", { cls: "mod-cta", text: "Send" }), async () => {
     var _a;
     const text = ta.value.trim();
     const files = Array.from((_a = file.files) != null ? _a : []);
@@ -1964,9 +2023,11 @@ function renderChat(root, plugin, ui) {
       }
     }
     await plugin.record("msg", { channel: ch.id, by: plugin.speaker(), text, replyTo: ui.replyTo, images, held });
+    plugin.drafts.clear(dkey);
+    plugin.drafts.clear(`${dkey}:held`);
     ui.replyTo = "";
     ui.rerender();
-  };
+  });
 }
 function renderMessage(el2, plugin, ui, m) {
   var _a, _b;
@@ -2073,15 +2134,19 @@ function renderLetters(root, plugin, ui) {
     };
   }
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "4", placeholder: "Dear\u2026" } });
+  plugin.drafts.bind(ta, `letter:${who}`);
   let held = false;
   new import_obsidian29.Setting(comp).setName("Hold it").addToggle((t) => t.onChange((v) => held = v));
-  comp.createEl("button", { cls: "mod-cta", text: "Send letter" }).onclick = async () => {
+  submit(comp.createEl("button", { cls: "mod-cta", text: "Send letter" }), async () => {
     if (!ta.value.trim() || to.size === 0) return;
     await plugin.record("letter", { to: [...to], by: plugin.speaker(), text: ta.value.trim(), held });
+    plugin.drafts.clear(`letter:${who}`);
     new import_obsidian29.Notice("Letter sent.");
-  };
+    ui.rerender();
+  });
 }
-function renderNotices(root, plugin) {
+function renderNotices(root, plugin, ui) {
+  var _a;
   const card = root.createDiv({ cls: "cmn-card" });
   card.createEl("h3", { text: "Noticeboard" });
   const now = /* @__PURE__ */ new Date();
@@ -2097,15 +2162,23 @@ function renderNotices(root, plugin) {
   }
   const comp = root.createDiv({ cls: "cmn-card cmn-compose" });
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "2", placeholder: 'Short notice \u2014 e.g. "Bins go out Thursday"' } });
-  let until = "";
+  plugin.drafts.bind(ta, "notice");
+  let until = (_a = plugin.drafts.get("notice:until")) != null ? _a : "";
   new import_obsidian29.Setting(comp).setName("Expires (optional)").addText((t) => {
     t.inputEl.type = "datetime-local";
-    t.onChange((v) => until = v);
+    t.setValue(until);
+    t.onChange((v) => {
+      until = v;
+      plugin.drafts.set("notice:until", v);
+    });
   });
-  comp.createEl("button", { cls: "mod-cta", text: "Pin notice" }).onclick = async () => {
+  submit(comp.createEl("button", { cls: "mod-cta", text: "Pin notice" }), async () => {
     if (!ta.value.trim()) return;
     await plugin.record("notice", { text: ta.value.trim(), by: plugin.speaker(), until: until ? new Date(until).toISOString() : "" });
-  };
+    plugin.drafts.clear("notice");
+    plugin.drafts.clear("notice:until");
+    ui.rerender();
+  });
 }
 function renderPolls(root, plugin, ui) {
   const s = plugin.state;
@@ -2120,6 +2193,8 @@ function renderPolls(root, plugin, ui) {
   comp.createEl("h4", { text: "New poll" });
   const q = comp.createEl("input", { cls: "cmn-input", attr: { type: "text", placeholder: "Question" } });
   const opts = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "3", placeholder: "One option per line" } });
+  plugin.drafts.bind(q, "poll:q");
+  plugin.drafts.bind(opts, "poll:options");
   let multi = false;
   let anonymous = false;
   let deadline = "";
@@ -2129,14 +2204,17 @@ function renderPolls(root, plugin, ui) {
     t.inputEl.type = "datetime-local";
     t.onChange((v) => deadline = v);
   });
-  comp.createEl("button", { cls: "mod-cta", text: "Start poll" }).onclick = async () => {
+  submit(comp.createEl("button", { cls: "mod-cta", text: "Start poll" }), async () => {
     const options = opts.value.split("\n").map((l) => l.trim()).filter(Boolean).map((label) => ({ id: newId().slice(0, 8), label }));
     if (!q.value.trim() || options.length < 2) {
       new import_obsidian29.Notice("A question and at least two options.");
       return;
     }
     await plugin.record("poll", { question: q.value.trim(), options, multi, anonymous, deadline: deadline ? new Date(deadline).toISOString() : "", by: plugin.speaker() });
-  };
+    plugin.drafts.clear("poll:q");
+    plugin.drafts.clear("poll:options");
+    ui.rerender();
+  });
 }
 function renderPoll(root, plugin, ui, p, members, now) {
   var _a, _b, _c;
@@ -2246,7 +2324,7 @@ function todayStr() {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 async function renderJournal(root, plugin, ui, jui) {
-  var _a, _b;
+  var _a, _b, _c, _d, _e;
   const app = plugin.app;
   if (!journalAvailable(app)) {
     const c = root.createDiv({ cls: "cmn-card" });
@@ -2263,21 +2341,31 @@ async function renderJournal(root, plugin, ui, jui) {
     const block = ed.createDiv({ cls: "cmn-jfield" });
     block.createDiv({ cls: "cmn-label", text: f.label });
     const ta2 = block.createEl("textarea", { cls: "cmn-input", attr: { rows: "3" } });
-    ta2.value = ((_a = day[f.key]) != null ? _a : "").replace(/^\s+|\s+$/g, "");
+    const fromNote = ((_a = day[f.key]) != null ? _a : "").replace(/^\s+|\s+$/g, "");
+    const dkey = `journal:${today}:${f.key}`;
+    const pending = plugin.drafts.get(dkey);
+    ta2.value = pending != null ? pending : fromNote;
     const status = block.createDiv({ cls: "cmn-muted cmn-jstatus" });
     let timer = null;
-    let last = ta2.value;
+    let last = fromNote;
     const save = async () => {
       if (ta2.value === last) return;
       try {
-        await writeJournalField(app, f.key, ta2.value);
-        last = ta2.value;
+        const v = ta2.value;
+        await writeJournalField(app, f.key, v);
+        last = v;
+        if (ta2.value === v) plugin.drafts.clear(dkey);
         status.setText("Saved");
       } catch (e) {
         status.setText(`Not saved: ${e.message}. Your text is still here.`);
       }
     };
+    if (pending !== void 0 && pending !== fromNote) {
+      status.setText("Restored what you were typing \u2014 saving\u2026");
+      void save();
+    }
     ta2.addEventListener("input", () => {
+      plugin.drafts.set(dkey, ta2.value);
       status.setText("");
       if (timer !== null) window.clearTimeout(timer);
       timer = window.setTimeout(() => {
@@ -2297,21 +2385,26 @@ async function renderJournal(root, plugin, ui, jui) {
   comp.createEl("h3", { text: "Write an entry" });
   comp.createEl("p", { cls: "cmn-muted", text: "Goes into today's note with a small stamp of who and when." });
   speakerPicker(comp, plugin, ui.rerender);
-  let section = "musing";
-  let mood = "";
-  let energy = "";
-  let held = false;
+  let section = (_b = plugin.drafts.get("jentry:section")) != null ? _b : "musing";
+  let mood = (_c = plugin.drafts.get("jentry:mood")) != null ? _c : "";
+  let energy = (_d = plugin.drafts.get("jentry:energy")) != null ? _d : "";
+  let held = plugin.drafts.get("jentry:held") === "1";
   new import_obsidian30.Setting(comp).setName("Section").addDropdown((d) => {
     for (const f of fields) d.addOption(f.key, f.label);
-    d.setValue(section).onChange((v) => section = v);
+    d.setValue(section).onChange((v) => {
+      section = v;
+      plugin.drafts.set("jentry:section", v);
+    });
   });
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "5", placeholder: "Anything." } });
+  plugin.drafts.bind(ta, "jentry");
   const tplRow = comp.createDiv({ cls: "cmn-chips" });
   tplRow.createSpan({ cls: "cmn-muted", text: "Template:" });
   for (const t of [...plugin.journal.templates.values()].filter((x) => !x.deleted)) {
     tplRow.createEl("button", { cls: "cmn-chip", text: t.name }).onclick = () => {
       ta.value = ta.value ? `${ta.value}
 ${t.body}` : t.body;
+      plugin.drafts.set("jentry", ta.value);
       ta.focus();
     };
   }
@@ -2321,12 +2414,12 @@ ${t.body}` : t.body;
     await plugin.record("jtemplate", { name, body: ta.value });
     new import_obsidian30.Notice(`Template "${name}" saved.`);
   };
-  const chipRow = (label, options, set) => {
+  const chipRow = (label, options, set, initial = "") => {
     const row = comp.createDiv({ cls: "cmn-chips" });
     row.createSpan({ cls: "cmn-muted", text: label });
-    let cur = "";
+    let cur = initial;
     for (const o of options) {
-      const b = row.createEl("button", { cls: "cmn-chip", text: o });
+      const b = row.createEl("button", { cls: "cmn-chip" + (o === cur ? " is-on" : ""), text: o });
       b.onclick = () => {
         cur = cur === o ? "" : o;
         row.querySelectorAll("button").forEach((x) => x.toggleClass("is-on", x.textContent === cur));
@@ -2334,22 +2427,19 @@ ${t.body}` : t.body;
       };
     }
   };
-  chipRow("Mood:", MOODS, (v) => mood = v);
-  chipRow("Energy:", ENERGY, (v) => energy = v);
+  chipRow("Mood:", MOODS, (v) => (mood = v, plugin.drafts.set("jentry:mood", v)), mood);
+  chipRow("Energy:", ENERGY, (v) => (energy = v, plugin.drafts.set("jentry:energy", v)), energy);
   const topics = comp.createEl("input", { cls: "cmn-input", attr: { type: "text", placeholder: "Topics, comma-separated (optional)" } });
-  new import_obsidian30.Setting(comp).setName("Hold it").setDesc("Only a placeholder goes in the note; the words stay behind a tap in Commons. Not encryption.").addToggle((t) => t.onChange((v) => held = v));
-  comp.createEl("button", { cls: "mod-cta", text: "Add entry" }).onclick = async () => {
+  plugin.drafts.bind(topics, "jentry:topics");
+  new import_obsidian30.Setting(comp).setName("Hold it").setDesc("Only a placeholder goes in the note; the words stay behind a tap in Commons. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => (held = v, plugin.drafts.set("jentry:held", v ? "1" : ""))));
+  submit(comp.createEl("button", { cls: "mod-cta", text: "Add entry" }), async () => {
     if (!ta.value.trim()) return;
-    await plugin.addJournalEntry({
-      section,
-      text: ta.value,
-      by: plugin.speaker(),
-      mood,
-      energy,
-      topics: topics.value.split(",").map((t) => t.trim()).filter(Boolean),
-      held
-    });
-  };
+    const text = ta.value;
+    const tags = topics.value.split(",").map((t) => t.trim()).filter(Boolean);
+    await plugin.addJournalEntry({ section, text, by: plugin.speaker(), mood, energy, topics: tags, held });
+    for (const k of ["jentry", "jentry:topics", "jentry:section", "jentry:mood", "jentry:energy", "jentry:held"]) plugin.drafts.clear(k);
+    ui.rerender();
+  });
   const tl = root.createDiv({ cls: "cmn-card" });
   const head = tl.createDiv({ cls: "cmn-row" });
   head.createEl("h3", { text: "Timeline" });
@@ -2393,7 +2483,7 @@ ${t.body}` : t.body;
     const content = await readJournalDay(app, date);
     let any = false;
     for (const f of fields) {
-      const raw = ((_b = content[f.key]) != null ? _b : "").trim();
+      const raw = ((_e = content[f.key]) != null ? _e : "").trim();
       if (!raw || /^-?\s*(\[[ xX]?\])?\s*$/.test(raw)) continue;
       any = true;
       const sec = dayEl.createDiv({ cls: "cmn-jsec" });
@@ -3006,7 +3096,6 @@ var CommonsView = class extends import_obsidian33.ItemView {
     this.jui = { page: 0, member: "", topic: "" };
     this.mui = newMapUi();
     this.hui = newHistUi();
-    this.pendingRefresh = false;
     this.ui = {
       revealed: this.revealed,
       channel: "",
@@ -3022,6 +3111,9 @@ var CommonsView = class extends import_obsidian33.ItemView {
       },
       rerender: () => void this.refresh()
     };
+    this.lastInteract = 0;
+    this.pointerDown = false;
+    this.retryTimer = null;
   }
   /** Open a section (used by the dashboard doorway / API). */
   goTo(section) {
@@ -3037,30 +3129,43 @@ var CommonsView = class extends import_obsidian33.ItemView {
     return "users";
   }
   async onOpen() {
-    this.off = this.plugin.onChange(() => void this.refresh());
-    this.registerInterval(window.setInterval(() => void this.refresh(), 6e4));
+    const touch = () => this.lastInteract = Date.now();
+    this.registerDomEvent(this.contentEl, "pointerdown", () => (this.pointerDown = true, touch()));
+    this.registerDomEvent(document, "pointerup", () => (this.pointerDown = false, touch()));
+    this.registerDomEvent(document, "pointercancel", () => this.pointerDown = false);
+    this.registerDomEvent(this.contentEl, "keydown", touch);
+    this.registerDomEvent(this.contentEl, "input", touch);
+    this.off = this.plugin.onChange(() => void this.backgroundRefresh());
+    this.registerInterval(window.setInterval(() => void this.backgroundRefresh(), 6e4));
     await this.refresh();
   }
   async onClose() {
     var _a;
     (_a = this.off) == null ? void 0 : _a.call(this);
+    if (this.retryTimer !== null) window.clearTimeout(this.retryTimer);
   }
-  async refresh() {
+  /** True while someone is typing in, touching, or has just used the view. */
+  busy() {
     const a = document.activeElement;
-    if (a && this.contentEl.contains(a) && (a.tagName === "TEXTAREA" || a.tagName === "INPUT" && a.type !== "search")) {
-      if (!this.pendingRefresh) {
-        this.pendingRefresh = true;
-        a.addEventListener(
-          "blur",
-          () => {
-            this.pendingRefresh = false;
-            window.setTimeout(() => void this.refresh(), 50);
-          },
-          { once: true }
-        );
+    const typing = !!a && this.contentEl.contains(a) && (a.tagName === "TEXTAREA" || a.tagName === "SELECT" || a.tagName === "INPUT" && a.type !== "search");
+    return typing || this.pointerDown || Date.now() - this.lastInteract < 1500;
+  }
+  /** A redraw nobody asked for: wait until the person is idle. (Drafts would
+   * survive it anyway; this keeps the keyboard and any half-finished tap.) */
+  async backgroundRefresh() {
+    if (this.busy()) {
+      if (this.retryTimer === null) {
+        this.retryTimer = window.setTimeout(() => {
+          this.retryTimer = null;
+          void this.backgroundRefresh();
+        }, 1e3);
       }
       return;
     }
+    await this.refresh();
+  }
+  /** Redraw now. Used for the person's own actions (tabs, chips, after a send). */
+  async refresh() {
     this.day = await daySnapshot(this.app);
     const root = this.contentEl;
     root.empty();
@@ -3071,7 +3176,7 @@ var CommonsView = class extends import_obsidian33.ItemView {
       if (this.section === "today") this.render(root);
       else if (this.section === "chat") renderChat(root, this.plugin, this.ui);
       else if (this.section === "letters") renderLetters(root, this.plugin, this.ui);
-      else if (this.section === "notices") renderNotices(root, this.plugin);
+      else if (this.section === "notices") renderNotices(root, this.plugin, this.ui);
       else if (this.section === "polls") renderPolls(root, this.plugin, this.ui);
       else if (this.section === "journal") await renderJournal(root, this.plugin, this.ui, this.jui);
       else if (this.section === "map") renderMaps(root, this.plugin, this.mui, () => void this.refresh());
@@ -3367,6 +3472,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
     applyUiStyles(this);
     this.settings = { ...DEFAULTS, ...await this.loadData() };
     this.store = new CommonsStore(this.app, () => this.settings.folder);
+    this.drafts = new Drafts(this.app);
     this.addRibbonIcon("users", "Open Commons", () => void this.openView());
     this.addCommand({ id: "open", name: "Open Commons", callback: () => void this.openView() });
     this.addCommand({ id: "set-here", name: "Set who's here", callback: () => this.openHere() });
