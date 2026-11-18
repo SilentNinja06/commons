@@ -94,3 +94,26 @@ body:not(.is-mobile) .cmn-actions-list button { min-height: 32px; }
 .cmn-hbar { position: relative; height: 18px; background: var(--background-primary); border-radius: 4px; overflow: hidden; margin-bottom: 4px; }
 .cmn-hseg { position: absolute; top: 0; bottom: 0; background: var(--cmn-member, var(--text-muted)); opacity: 0.85; }
 .cmn-hseg.is-gap { background: repeating-linear-gradient(45deg, var(--text-faint), var(--text-faint) 3px, transparent 3px, transparent 6px); opacity: 1; }
+
+/* Inner-world map rework: photo first, full screen, lists */
+.cmn-map { background: var(--background-primary); }
+.cmn-map-bg.is-paper { fill: var(--background-secondary); stroke: var(--background-modifier-border); stroke-width: 2; }
+.cmn-map-start { text-align: center; padding: 24px 16px; }
+.cmn-map-start .cmn-line-actions { justify-content: center; flex-wrap: wrap; }
+.cmn-map-hint { min-height: 28px; align-items: center; }
+.cmn-place-dot { stroke: var(--background-primary); stroke-width: 3; }
+.cmn-person circle { stroke: var(--background-primary); stroke-width: 3; }
+.cmn-map-wrap.is-full { position: fixed; inset: 0; z-index: var(--layer-modal); background: var(--background-primary); display: flex; flex-direction: column; padding: calc(env(safe-area-inset-top) + 8px) 8px calc(env(safe-area-inset-bottom) + 8px); }
+.cmn-map-wrap.is-full .cmn-map { flex: 1; min-height: 0; margin: 4px 0 0; }
+.cmn-map-wrap.is-full .cmn-map-svg { height: 100%; }
+.cmn-map-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 4px 24px; }
+.cmn-map-lists h4 { margin: 12px 0 6px; }
+.cmn-map-row { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: flex-start; min-height: 40px; margin-bottom: 4px; text-align: left; }
+.cmn-map-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--cmn-member); flex: none; }
+.cmn-map-dot.is-area { border-radius: 4px; opacity: 0.7; }
+.cmn-world .cmn-k { transform: scale(var(--cmn-k, 1)); }
+.cmn-world .cmn-map-label { font-size: 14px; stroke-width: 3px; }
+.cmn-world .cmn-map-area-label { font-size: calc(16px * var(--cmn-k, 1)); stroke-width: calc(3px * var(--cmn-k, 1)); }
+.cmn-world .cmn-draft { stroke-width: calc(3px * var(--cmn-k, 1)); }
+.cmn-world .cmn-place-dot, .cmn-world .cmn-person circle { stroke-width: 2; }
+body.is-mobile .cmn-zoom { display: none; }

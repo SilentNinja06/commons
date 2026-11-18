@@ -1937,20 +1937,68 @@ function layoutNodes(ids, rels, pinned, iterations = 60) {
   }
   return pos;
 }
+function inArea(p, area) {
+  let inside = false;
+  const pts = area.points;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const xi = pts[i].x;
+    const yi = pts[i].y;
+    const xj = pts[j].x;
+    const yj = pts[j].y;
+    if (yi > p.y !== yj > p.y && p.x < (xj - xi) * (p.y - yi) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
 function zoomAt(v, factor, at, min = 120, max = WORLD * 2) {
   const w = Math.max(min, Math.min(max, v.w / factor));
   const s = w / v.w;
   return { x: at.x - (at.x - v.x) * s, y: at.y - (at.y - v.y) * s, w };
 }
-function fitView(aspect) {
-  if (aspect < 1) {
-    const w = WORLD / aspect;
+function fitView(aspect, worldH = WORLD) {
+  if (aspect * WORLD < worldH) {
+    const w = worldH / aspect;
     return { x: -(w - WORLD) / 2, y: 0, w };
   }
-  return { x: 0, y: -(WORLD * aspect - WORLD) / 2, w: WORLD };
+  return { x: 0, y: (worldH - WORLD * aspect) / 2, w: WORLD };
 }
-function clampPoint(p) {
-  return { x: Math.max(0, Math.min(WORLD, p.x)), y: Math.max(0, Math.min(WORLD, p.y)) };
+function clampPoint(p, worldH = WORLD) {
+  return { x: Math.max(0, Math.min(WORLD, p.x)), y: Math.max(0, Math.min(worldH, p.y)) };
+}
+function simplifyStroke(points, gap = 8, max = 160) {
+  const out = [];
+  for (const p of points) {
+    const last = out[out.length - 1];
+    if (!last || Math.hypot(p.x - last.x, p.y - last.y) >= gap) out.push({ x: Math.round(p.x), y: Math.round(p.y) });
+  }
+  if (out.length > max) {
+    const step = out.length / max;
+    const thin = [];
+    for (let i = 0; i < max; i++) thin.push(out[Math.floor(i * step)]);
+    return thin.length >= 3 ? thin : [];
+  }
+  return out.length >= 3 ? out : [];
+}
+function whereIs(m, p, near = 120) {
+  const areas = [...m.areas.values()].filter((a) => !a.deleted && a.name && inArea(p, a));
+  if (areas.length) {
+    const size = (a) => {
+      const xs = a.points.map((q) => q.x);
+      const ys = a.points.map((q) => q.y);
+      return (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+    };
+    return `in ${areas.sort((a, b) => size(a) - size(b))[0].name}`;
+  }
+  let best = null;
+  let bd = near;
+  for (const pl of m.places.values()) {
+    if (pl.deleted) continue;
+    const d = Math.hypot(pl.x - p.x, pl.y - p.y);
+    if (d <= bd) {
+      bd = d;
+      best = pl;
+    }
+  }
+  return best ? `near ${best.name}` : "";
 }
 
 // src/commsview.ts
@@ -2599,7 +2647,7 @@ var import_obsidian31 = require("obsidian");
 var NS = "http://www.w3.org/2000/svg";
 var PALETTE = ["#c77dba", "#d9a441", "#6fa8dc", "#7fb069", "#e07a5f", "#9a8fd1", "#5fa3a3", "#c9a46a"];
 function newMapUi() {
-  return { mode: "relationships", relView: { x: 0, y: 0, w: 0 }, worldView: { x: 0, y: 0, w: 0 }, tool: "move", draft: [], connectFrom: "", memberToPlace: "" };
+  return { mode: "relationships", relView: { x: 0, y: 0, w: 0 }, worldView: { x: 0, y: 0, w: 0 }, tool: "move", draft: [], connectFrom: "", memberToPlace: "", bg: { path: "", ar: 1 }, full: false, blank: false };
 }
 function el(parent, tag, attrs = {}) {
   const e = document.createElementNS(NS, tag);
@@ -2607,12 +2655,13 @@ function el(parent, tag, attrs = {}) {
   parent.appendChild(e);
   return e;
 }
-function surface(svg, view, h) {
+function surface(svg, view, h, worldH = WORLD) {
   const aspect = () => (svg.clientHeight || 1) / (svg.clientWidth || 1);
   const apply = () => {
-    if (!view.w && svg.clientWidth) Object.assign(view, fitView(aspect()));
+    if (!view.w && svg.clientWidth) Object.assign(view, fitView(aspect(), worldH));
     const w = view.w || WORLD;
     svg.setAttribute("viewBox", `${view.x} ${view.y} ${w} ${w * aspect()}`);
+    svg.style.setProperty("--cmn-k", String(w / (svg.clientWidth || WORLD)));
   };
   apply();
   window.requestAnimationFrame(apply);
@@ -2626,8 +2675,15 @@ function surface(svg, view, h) {
   let dragId = null;
   let dragEl = null;
   let pinch = null;
+  let stroke = null;
+  let strokeEl = null;
+  const endStroke = () => {
+    strokeEl == null ? void 0 : strokeEl.remove();
+    strokeEl = null;
+    stroke = null;
+  };
   svg.addEventListener("pointerdown", (e) => {
-    var _a;
+    var _a, _b;
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
     try {
       svg.setPointerCapture(e.pointerId);
@@ -2636,13 +2692,21 @@ function surface(svg, view, h) {
     if (pts.size === 1) {
       start = { x: e.clientX, y: e.clientY };
       moved = false;
+      if ((_a = h.drawing) == null ? void 0 : _a.call(h)) {
+        stroke = [clampPoint(toWorld(e.clientX, e.clientY), worldH)];
+        strokeEl = el(svg, "polyline", { fill: "none", stroke: "currentColor", "stroke-width": 4, "stroke-linejoin": "round", "stroke-linecap": "round", class: "cmn-draft" });
+        dragId = null;
+        dragEl = null;
+        return;
+      }
       const item = e.target.closest("[data-item]");
-      dragId = (item == null ? void 0 : item.dataset.drag) === "1" ? (_a = item.dataset.item) != null ? _a : null : null;
+      dragId = (item == null ? void 0 : item.dataset.drag) === "1" ? (_b = item.dataset.item) != null ? _b : null : null;
       dragEl = dragId ? item : null;
     } else if (pts.size === 2) {
       const [a, b] = [...pts.values()];
       pinch = { d: Math.hypot(a.x - b.x, a.y - b.y), w: view.w };
       dragId = null;
+      endStroke();
     }
   });
   svg.addEventListener("pointermove", (e) => {
@@ -2659,11 +2723,16 @@ function surface(svg, view, h) {
       moved = true;
       return;
     }
+    if (stroke && strokeEl) {
+      stroke.push(clampPoint(toWorld(e.clientX, e.clientY), worldH));
+      strokeEl.setAttribute("points", stroke.map((q) => `${q.x},${q.y}`).join(" "));
+      return;
+    }
     if (!start) return;
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) moved = true;
     if (!moved) return;
     if (dragEl) {
-      const p = clampPoint(toWorld(e.clientX, e.clientY));
+      const p = clampPoint(toWorld(e.clientX, e.clientY), worldH);
       dragEl.setAttribute("transform", `translate(${p.x} ${p.y})`);
     } else {
       const r = svg.getBoundingClientRect();
@@ -2674,7 +2743,7 @@ function surface(svg, view, h) {
     }
   });
   const end = (e) => {
-    var _a;
+    var _a, _b;
     if (!pts.has(e.pointerId)) return;
     pts.delete(e.pointerId);
     if (pts.size > 0) return;
@@ -2683,10 +2752,17 @@ function surface(svg, view, h) {
       h.onView({ ...view });
       return;
     }
-    const p = clampPoint(toWorld(e.clientX, e.clientY));
+    if (stroke) {
+      const drawn = stroke;
+      endStroke();
+      start = null;
+      (_a = h.onStroke) == null ? void 0 : _a.call(h, drawn);
+      return;
+    }
+    const p = clampPoint(toWorld(e.clientX, e.clientY), worldH);
     if (!moved) {
       const item = e.target.closest("[data-item]");
-      h.onTap(p, (_a = item == null ? void 0 : item.dataset.item) != null ? _a : null);
+      h.onTap(p, (_b = item == null ? void 0 : item.dataset.item) != null ? _b : null);
     } else if (dragId) h.onDrop(dragId, p);
     else h.onView({ ...view });
     start = null;
@@ -2706,15 +2782,15 @@ function surface(svg, view, h) {
     { passive: false }
   );
 }
-function zoomButtons(bar, view, rerender) {
-  bar.createEl("button", { text: "\uFF0B", attr: { "aria-label": "Zoom in" } }).onclick = () => {
+function zoomButtons(bar, view, rerender, worldH = WORLD) {
+  bar.createEl("button", { cls: "cmn-zoom", text: "\uFF0B", attr: { "aria-label": "Zoom in" } }).onclick = () => {
     if (!view.w) Object.assign(view, { x: 0, y: 0, w: WORLD });
-    Object.assign(view, zoomAt(view, 1.4, { x: view.x + view.w / 2, y: view.y + view.w / 2 }));
+    Object.assign(view, zoomAt(view, 1.4, { x: view.x + view.w / 2, y: view.y + worldH / 2 }));
     rerender();
   };
-  bar.createEl("button", { text: "\uFF0D", attr: { "aria-label": "Zoom out" } }).onclick = () => {
+  bar.createEl("button", { cls: "cmn-zoom", text: "\uFF0D", attr: { "aria-label": "Zoom out" } }).onclick = () => {
     if (!view.w) Object.assign(view, { x: 0, y: 0, w: WORLD });
-    Object.assign(view, zoomAt(view, 1 / 1.4, { x: view.x + view.w / 2, y: view.y + view.w / 2 }));
+    Object.assign(view, zoomAt(view, 1 / 1.4, { x: view.x + view.w / 2, y: view.y + worldH / 2 }));
     rerender();
   };
   bar.createEl("button", { text: "Fit" }).onclick = () => {
@@ -2839,144 +2915,238 @@ function renderRelationships(root, plugin, ui, maps, rerender) {
   }
   root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag a person to pin them; tap for their profile." });
 }
+function pickPhoto(plugin) {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async () => {
+    var _a;
+    const f = (_a = input.files) == null ? void 0 : _a[0];
+    if (!f) return;
+    try {
+      await plugin.record("mapbg", { path: await plugin.saveImage(f) });
+    } catch (e) {
+      new import_obsidian31.Notice(`Couldn't save the photo: ${e.message}`);
+    }
+  };
+  input.click();
+}
 function renderWorld(root, plugin, ui, maps, rerender) {
   const s = plugin.state;
-  const bar = root.createDiv({ cls: "cmn-line-actions cmn-mapbar" });
-  const tool = (id, label) => {
-    bar.createEl("button", { cls: ui.tool === id ? "mod-cta" : "", text: label }).onclick = () => {
-      ui.tool = ui.tool === id ? "move" : id;
-      ui.draft = [];
-      if (ui.tool === "member")
-        new PickModal(plugin, "Who goes on the map?", async ([m]) => {
-          ui.memberToPlace = m;
-          rerender();
-        }).open();
+  const bgPath = maps.background;
+  const bgFile = bgPath && plugin.app.vault.getAbstractFileByPath(bgPath) ? bgPath : "";
+  const src = bgFile ? plugin.app.vault.adapter.getResourcePath(bgFile) : "";
+  if (bgFile && ui.bg.path !== bgFile) {
+    const img = new Image();
+    const done = (ar2) => {
+      ui.bg = { path: bgFile, ar: isFinite(ar2) && ar2 > 0 ? Math.max(0.2, Math.min(5, ar2)) : 1 };
+      ui.worldView.w = 0;
       rerender();
     };
-  };
-  tool("place", "Add place");
-  tool("area", "Draw area");
-  tool("member", "Place someone");
-  bar.createEl("button", { text: maps.background ? "Change background" : "Background image" }).onclick = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = "image/*";
-    input.onchange = async () => {
-      var _a;
-      const f = (_a = input.files) == null ? void 0 : _a[0];
-      if (!f) return;
-      try {
-        await plugin.record("mapbg", { path: await plugin.saveImage(f) });
-      } catch (e) {
-        new import_obsidian31.Notice(`Couldn't save the image: ${e.message}`);
-      }
-    };
-    input.click();
-  };
-  if (maps.background) bar.createEl("button", { text: "No background" }).onclick = () => void plugin.record("mapbg", { path: "" });
-  zoomButtons(bar, ui.worldView, rerender);
-  if (ui.tool === "area") {
-    const hint = root.createDiv({ cls: "cmn-line-actions" });
-    hint.createSpan({ cls: "cmn-muted", text: `Tap corners of the area (${ui.draft.length} so far).` });
-    if (ui.draft.length >= 3)
-      hint.createEl("button", { cls: "mod-cta", text: "Finish area" }).onclick = () => new TextModal(plugin, "Name this area", "Optional.", "", async (name) => {
-        await plugin.record("area", { name: name.trim(), points: ui.draft.map((p) => ({ x: Math.round(p.x), y: Math.round(p.y) })), color: PALETTE[maps.areas.size % PALETTE.length] });
-        ui.draft = [];
-        ui.tool = "move";
-      }).open();
-    hint.createEl("button", { text: "Cancel" }).onclick = () => (ui.draft = [], ui.tool = "move", rerender());
-  } else if (ui.tool === "place") root.createDiv({ cls: "cmn-muted", text: "Tap where the place goes." });
-  else if (ui.tool === "member") root.createDiv({ cls: "cmn-muted", text: ui.memberToPlace ? `Tap where ${nameOf(s, ui.memberToPlace)} goes.` : "Pick someone first." });
-  const svg = el(root.createDiv({ cls: "cmn-map" }), "svg", { class: "cmn-map-svg", role: "img", "aria-label": "Inner world map" });
-  el(svg, "rect", { x: 0, y: 0, width: WORLD, height: WORLD, class: "cmn-map-bg" });
-  if (maps.background && plugin.app.vault.getAbstractFileByPath(maps.background)) {
-    el(svg, "image", { href: plugin.app.vault.adapter.getResourcePath(maps.background), x: 0, y: 0, width: WORLD, height: WORLD, preserveAspectRatio: "xMidYMid meet" });
+    img.onload = () => done(img.naturalHeight / (img.naturalWidth || 1));
+    img.onerror = () => done(1);
+    img.src = src;
+  } else if (!bgFile && ui.bg.path) {
+    ui.bg = { path: "", ar: 1 };
+    ui.worldView.w = 0;
   }
-  for (const a of maps.areas.values()) {
-    if (a.deleted) continue;
+  const ar = bgFile && ui.bg.path === bgFile ? ui.bg.ar : 1;
+  const H = WORLD * ar;
+  const toScreen = (p) => ({ x: p.x, y: p.y * ar });
+  const toStore = (p) => ({ x: Math.round(p.x), y: Math.round(Math.max(0, Math.min(WORLD, p.y / ar))) });
+  const places = [...maps.places.values()].filter((p) => !p.deleted).sort((a, b) => a.name.localeCompare(b.name));
+  const areas = [...maps.areas.values()].filter((a) => !a.deleted);
+  const members = activeMembers(s);
+  const pinned = members.filter((m) => maps.pins.has(m.id));
+  const empty = !bgPath && !places.length && !areas.length && !pinned.length;
+  if (empty && !ui.blank) {
+    const card = root.createDiv({ cls: "cmn-card cmn-map-start" });
+    card.createEl("h3", { text: "Map your inner world" });
+    card.createEl("p", { text: "Draw it on paper first, any way you like. Then take a photo and add it here. You can pin places and people on top of the drawing." });
+    const row = card.createDiv({ cls: "cmn-line-actions" });
+    row.createEl("button", { cls: "mod-cta", text: "Add a photo of my drawing" }).onclick = () => pickPhoto(plugin);
+    row.createEl("button", { text: "Start on a blank map" }).onclick = () => {
+      ui.blank = true;
+      rerender();
+    };
+    return;
+  }
+  const placeActions = (pl) => new ActionsModal(plugin, pl.name, pl.note ? `Linked to ${pl.note}` : "", [
+    ...pl.note ? [{ label: "Open linked note", cta: true, run: () => void plugin.app.workspace.openLinkText(pl.note, "", true) }] : [],
+    { label: pl.note ? "Change linked note" : "Link a note", run: () => new TextModal(plugin, "Note to link", "A note name or path, e.g. Places/Library", pl.note, (v) => plugin.record("edit", { target: pl.id, fields: { note: v.trim() } }).then(() => {
+    })).open() },
+    { label: "Rename", run: () => new TextModal(plugin, "Rename", "", pl.name, (v) => v.trim() ? plugin.record("edit", { target: pl.id, fields: { name: v.trim() } }).then(() => {
+    }) : Promise.resolve()).open() },
+    ...PALETTE.slice(0, 4).map((c, i) => ({ label: `Colour ${i + 1}`, run: () => void plugin.record("edit", { target: pl.id, fields: { color: c } }) })),
+    { label: "Remove place", warn: true, run: () => void plugin.record("delete", { target: pl.id }) }
+  ]).open();
+  const pinActions = (mid) => new ActionsModal(plugin, nameOf(s, mid), "", [
+    { label: "Open profile", cta: true, run: () => new MemberModal(plugin, s.members.get(mid)).open() },
+    { label: "Move them", run: () => (ui.tool = "member", ui.memberToPlace = mid, rerender()) },
+    { label: "Take off the map", run: () => void plugin.record("unmpin", { member: mid }) }
+  ]).open();
+  const areaActions = (a) => new ActionsModal(plugin, a.name || "Area", "", [
+    { label: a.name ? "Rename" : "Name it", run: () => new TextModal(plugin, "Rename", "", a.name, (v) => plugin.record("edit", { target: a.id, fields: { name: v.trim() } }).then(() => {
+    })).open() },
+    ...PALETTE.slice(0, 4).map((c, i) => ({ label: `Colour ${i + 1}`, run: () => void plugin.record("edit", { target: a.id, fields: { color: c } }) })),
+    { label: "Remove area", warn: true, run: () => void plugin.record("delete", { target: a.id }) }
+  ]).open();
+  const addPlaceAt = (p) => new TextModal(plugin, "Name this place", "", "", async (name) => {
+    await plugin.record("place", { name: name.trim() || "Place", ...toStore(p), note: "" });
+  }).open();
+  const putSomeoneAt = (p) => new PickModal(plugin, "Who goes here?", async ([m]) => {
+    if (m) await plugin.record("mpin", { member: m, ...toStore(p) });
+  }).open();
+  const wrap = root.createDiv({ cls: "cmn-map-wrap" + (ui.full ? " is-full" : "") });
+  const bar = wrap.createDiv({ cls: "cmn-line-actions cmn-mapbar" });
+  const drawing = ui.tool === "area";
+  bar.createEl("button", { cls: drawing ? "mod-cta" : "", text: drawing ? "Stop drawing" : "Draw an area" }).onclick = () => {
+    ui.tool = drawing ? "move" : "area";
+    rerender();
+  };
+  if (bgPath)
+    bar.createEl("button", { text: "Photo\u2026" }).onclick = () => new ActionsModal(plugin, "Map photo", "", [
+      { label: "Replace with a new photo", cta: true, run: () => pickPhoto(plugin) },
+      { label: "Remove photo from the map", warn: true, run: () => void plugin.record("mapbg", { path: "" }) }
+    ]).open();
+  else bar.createEl("button", { text: "Add photo" }).onclick = () => pickPhoto(plugin);
+  bar.createEl("button", { text: ui.full ? "Exit full screen" : "Full screen" }).onclick = () => {
+    ui.full = !ui.full;
+    ui.worldView.w = 0;
+    rerender();
+  };
+  zoomButtons(bar, ui.worldView, rerender, H);
+  const hint = wrap.createDiv({ cls: "cmn-line-actions cmn-map-hint" });
+  if (drawing) hint.createSpan({ cls: "cmn-muted", text: "Trace an outline with one finger. Two fingers still zoom." });
+  else if (ui.tool === "member" && ui.memberToPlace) {
+    hint.createSpan({ text: `Tap where ${nameOf(s, ui.memberToPlace)} goes.` });
+    hint.createEl("button", { text: "Cancel" }).onclick = () => (ui.tool = "move", ui.memberToPlace = "", rerender());
+  } else hint.createSpan({ cls: "cmn-muted", text: "Tap an empty spot to add a place or person. Drag to pan, pinch to zoom." });
+  if (bgPath && !bgFile) hint.createSpan({ cls: "cmn-muted", text: " The photo hasn't reached this device yet." });
+  const svg = el(wrap.createDiv({ cls: "cmn-map" }), "svg", { class: "cmn-map-svg cmn-world", role: "img", "aria-label": "Inner world map" });
+  el(svg, "rect", { x: 0, y: 0, width: WORLD, height: H, class: "cmn-map-bg" + (bgFile ? "" : " is-paper") });
+  if (src) el(svg, "image", { href: src, x: 0, y: 0, width: WORLD, height: H, preserveAspectRatio: "xMidYMid meet" });
+  for (const a of areas) {
+    const pts = a.points.map(toScreen);
     const g = el(svg, "g", { "data-item": `area:${a.id}` });
-    el(g, "polygon", { points: a.points.map((p) => `${p.x},${p.y}`).join(" "), fill: a.color, "fill-opacity": 0.25, stroke: a.color, "stroke-width": 3 });
+    el(g, "polygon", { points: pts.map((p) => `${p.x},${p.y}`).join(" "), fill: a.color, "fill-opacity": bgFile ? 0.15 : 0.25, stroke: a.color, "stroke-width": 3, "stroke-linejoin": "round", "vector-effect": "non-scaling-stroke" });
     if (a.name) {
-      const cx = a.points.reduce((n, p) => n + p.x, 0) / a.points.length;
-      const cy = a.points.reduce((n, p) => n + p.y, 0) / a.points.length;
+      const cx = pts.reduce((n, p) => n + p.x, 0) / pts.length;
+      const cy = pts.reduce((n, p) => n + p.y, 0) / pts.length;
       const t = el(g, "text", { x: cx, y: cy, "text-anchor": "middle", class: "cmn-map-label cmn-map-area-label" });
       t.textContent = a.name;
     }
   }
-  if (ui.draft.length) el(svg, "polyline", { points: ui.draft.map((p) => `${p.x},${p.y}`).join(" "), fill: "none", stroke: "currentColor", "stroke-width": 3, "stroke-dasharray": "8 6", class: "cmn-draft" });
-  for (const p of maps.places.values()) {
-    if (p.deleted) continue;
-    const g = el(svg, "g", { "data-item": `place:${p.id}`, "data-drag": "1", transform: `translate(${p.x} ${p.y})`, class: "cmn-node" });
-    el(g, "rect", { x: -10, y: -10, width: 20, height: 20, rx: 4, fill: p.color || "#d9a441" });
-    const t = el(g, "text", { y: 32, "text-anchor": "middle", class: "cmn-map-label" });
-    t.textContent = p.name + (p.note ? " \u2197" : "");
+  for (const pl of places) {
+    const p = toScreen(pl);
+    const outer = el(svg, "g", { "data-item": `place:${pl.id}`, "data-drag": "1", transform: `translate(${p.x} ${p.y})`, class: "cmn-node" });
+    const g = el(outer, "g", { class: "cmn-k" });
+    el(g, "circle", { r: 9, fill: pl.color || "#d9a441", class: "cmn-place-dot" });
+    const t = el(g, "text", { y: 26, "text-anchor": "middle", class: "cmn-map-label" });
+    t.textContent = pl.name + (pl.note ? " \u2197" : "");
   }
-  for (const pin of maps.pins.values()) {
-    const m = s.members.get(pin.member);
-    if (!m || m.status === "archived") continue;
-    const g = el(svg, "g", { "data-item": `pin:${m.id}`, "data-drag": "1", transform: `translate(${pin.x} ${pin.y})`, class: "cmn-node" });
-    el(g, "circle", { r: 14, fill: m.color || "#888888" });
-    const t = el(g, "text", { y: -20, "text-anchor": "middle", class: "cmn-map-label" });
+  for (const m of pinned) {
+    const p = toScreen(maps.pins.get(m.id));
+    const outer = el(svg, "g", { "data-item": `pin:${m.id}`, "data-drag": "1", transform: `translate(${p.x} ${p.y})`, class: "cmn-node cmn-person" });
+    const g = el(outer, "g", { class: "cmn-k" });
+    el(g, "circle", { r: 12, fill: m.color || "#888888" });
+    const t = el(g, "text", { y: -18, "text-anchor": "middle", class: "cmn-map-label" });
     t.textContent = m.name || "Unnamed";
   }
-  surface(svg, ui.worldView, {
-    onView: (v) => Object.assign(ui.worldView, v),
-    onDrop: (id, p) => {
-      const x = Math.round(p.x);
-      const y = Math.round(p.y);
-      if (id.startsWith("place:")) void plugin.record("move", { target: id.slice(6), x, y });
-      else if (id.startsWith("pin:")) void plugin.record("mpin", { member: id.slice(4), x, y });
-    },
-    onTap: (p, id) => {
-      if (ui.tool === "area") {
-        ui.draft.push(p);
-        rerender();
-        return;
-      }
-      if (ui.tool === "place") {
-        ui.tool = "move";
-        new TextModal(plugin, "Name this place", "", "", async (name) => {
-          await plugin.record("place", { name: name.trim() || "Place", x: Math.round(p.x), y: Math.round(p.y), note: "" });
+  surface(
+    svg,
+    ui.worldView,
+    {
+      onView: (v) => Object.assign(ui.worldView, v),
+      drawing: () => ui.tool === "area",
+      onStroke: (raw) => {
+        const pts = simplifyStroke(raw.map(toStore));
+        if (!pts.length) {
+          new import_obsidian31.Notice("That outline was too small \u2014 try a bigger loop.");
+          return;
+        }
+        new TextModal(plugin, "Name this area", "Optional \u2014 you can name it later.", "", async (name) => {
+          await plugin.record("area", { name: name.trim(), points: pts, color: PALETTE[maps.areas.size % PALETTE.length] });
         }).open();
-        return;
+      },
+      onDrop: (id, p) => {
+        if (id.startsWith("place:")) void plugin.record("move", { target: id.slice(6), ...toStore(p) });
+        else if (id.startsWith("pin:")) void plugin.record("mpin", { member: id.slice(4), ...toStore(p) });
+      },
+      onTap: (p, id) => {
+        if (ui.tool === "member" && ui.memberToPlace) {
+          const m = ui.memberToPlace;
+          ui.tool = "move";
+          ui.memberToPlace = "";
+          void plugin.record("mpin", { member: m, ...toStore(p) });
+          return;
+        }
+        if (!id || id.startsWith("area:")) {
+          const a = id ? maps.areas.get(id.slice(5)) : void 0;
+          new ActionsModal(plugin, (a == null ? void 0 : a.name) || "Here", "", [
+            { label: "Add a place here", cta: true, run: () => addPlaceAt(p) },
+            { label: "Put someone here", run: () => putSomeoneAt(p) },
+            ...a ? [{ label: `Edit area${a.name ? ` "${a.name}"` : ""}`, run: () => areaActions(a) }] : []
+          ]).open();
+          return;
+        }
+        if (id.startsWith("place:")) {
+          const pl = maps.places.get(id.slice(6));
+          if (pl) placeActions(pl);
+        } else if (id.startsWith("pin:")) pinActions(id.slice(4));
       }
-      if (ui.tool === "member") {
-        if (!ui.memberToPlace) return;
-        const m = ui.memberToPlace;
-        ui.tool = "move";
-        ui.memberToPlace = "";
-        void plugin.record("mpin", { member: m, x: Math.round(p.x), y: Math.round(p.y) });
-        return;
-      }
-      if (!id) return;
-      if (id.startsWith("place:")) {
-        const pl = maps.places.get(id.slice(6));
-        new ActionsModal(plugin, pl.name, pl.note ? `Linked to ${pl.note}` : "", [
-          ...pl.note ? [{ label: "Open linked note", cta: true, run: () => void plugin.app.workspace.openLinkText(pl.note, "", true) }] : [],
-          { label: pl.note ? "Change linked note" : "Link a note", run: () => new TextModal(plugin, "Note to link", "A note name or path, e.g. Places/Library", pl.note, (v) => plugin.record("edit", { target: pl.id, fields: { note: v.trim() } }).then(() => {
-          })).open() },
-          { label: "Rename", run: () => new TextModal(plugin, "Rename", "", pl.name, (v) => v.trim() ? plugin.record("edit", { target: pl.id, fields: { name: v.trim() } }).then(() => {
-          }) : Promise.resolve()).open() },
-          { label: "Remove place", warn: true, run: () => void plugin.record("delete", { target: pl.id }) }
-        ]).open();
-      } else if (id.startsWith("pin:")) {
-        const mid = id.slice(4);
-        new ActionsModal(plugin, nameOf(s, mid), "", [
-          { label: "Open profile", cta: true, run: () => new MemberModal(plugin, s.members.get(mid)).open() },
-          { label: "Take off the map", run: () => void plugin.record("unmpin", { member: mid }) }
-        ]).open();
-      } else if (id.startsWith("area:")) {
-        const a = maps.areas.get(id.slice(5));
-        new ActionsModal(plugin, a.name || "Area", "", [
-          { label: "Rename", run: () => new TextModal(plugin, "Rename", "", a.name, (v) => plugin.record("edit", { target: a.id, fields: { name: v.trim() } }).then(() => {
-          })).open() },
-          ...PALETTE.slice(0, 4).map((c, i) => ({ label: `Colour ${i + 1}`, run: () => void plugin.record("edit", { target: a.id, fields: { color: c } }) })),
-          { label: "Remove area", warn: true, run: () => void plugin.record("delete", { target: a.id }) }
-        ]).open();
-      }
+    },
+    H
+  );
+  const lists = root.createDiv({ cls: "cmn-map-lists" });
+  const ppl = lists.createDiv();
+  ppl.createEl("h4", { text: "Who's where" });
+  if (pinned.length)
+    for (const m of pinned) {
+      const where = whereIs(maps, maps.pins.get(m.id));
+      const b = ppl.createEl("button", { cls: "cmn-map-row" });
+      const dot = b.createSpan({ cls: "cmn-map-dot" });
+      dot.style.setProperty("--cmn-member", m.color || "#888888");
+      b.createSpan({ text: m.name || "Unnamed" });
+      if (where) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${where}` });
+      b.onclick = () => pinActions(m.id);
     }
-  });
-  root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag places and people to move them; tap for options." });
+  const off = members.filter((m) => !maps.pins.has(m.id));
+  if (off.length) {
+    ppl.createEl("p", { cls: "cmn-muted", text: pinned.length ? "Not on the map yet \u2014 tap to place:" : "Tap someone, then tap the map where they go:" });
+    const chips = ppl.createDiv({ cls: "cmn-chips" });
+    for (const m of off) {
+      const c = chips.createEl("button", { cls: "cmn-chip" + (ui.memberToPlace === m.id ? " is-on" : ""), text: m.name || "Unnamed" });
+      if (m.color) c.style.setProperty("--cmn-member", m.color);
+      c.onclick = () => {
+        ui.tool = "member";
+        ui.memberToPlace = m.id;
+        rerender();
+      };
+    }
+  }
+  const pls = lists.createDiv();
+  pls.createEl("h4", { text: "Places" });
+  if (!places.length && !areas.some((a) => a.name)) pls.createEl("p", { cls: "cmn-muted", text: "None yet. Tap the map to add one." });
+  for (const pl of places) {
+    const b = pls.createEl("button", { cls: "cmn-map-row" });
+    const dot = b.createSpan({ cls: "cmn-map-dot" });
+    dot.style.setProperty("--cmn-member", pl.color || "#d9a441");
+    b.createSpan({ text: pl.name });
+    const here = pinned.filter((m) => whereIs(maps, maps.pins.get(m.id)) === `near ${pl.name}`).map((m) => m.name || "Unnamed");
+    if (here.length) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${here.join(", ")}` });
+    if (pl.note) b.createSpan({ cls: "cmn-muted", text: " \u2197" });
+    b.onclick = () => placeActions(pl);
+  }
+  for (const a of areas.filter((x) => x.name)) {
+    const b = pls.createEl("button", { cls: "cmn-map-row" });
+    const dot = b.createSpan({ cls: "cmn-map-dot is-area" });
+    dot.style.setProperty("--cmn-member", a.color);
+    b.createSpan({ text: a.name });
+    const here = pinned.filter((m) => whereIs(maps, maps.pins.get(m.id)) === `in ${a.name}`).map((m) => m.name || "Unnamed");
+    if (here.length) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${here.join(", ")}` });
+    b.onclick = () => areaActions(a);
+  }
 }
 
 // src/historyview.ts

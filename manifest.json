@@ -1,7 +1,7 @@
 {
 	"id": "commons",
 	"name": "Commons",
-	"version": "0.5.2",
+	"version": "0.6.0",
 	"minAppVersion": "1.4.0",
 	"description": "A shared place for a collective: who's here, handoffs, gaps, members. Mobile-first, no network.",
 	"author": "SilentNinja06",
