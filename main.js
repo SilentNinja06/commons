@@ -965,6 +965,13 @@ function predatesCommons(date, j) {
 function attributionsFor(j, date, section) {
   return j.attributions.filter((a) => a.date === date && (a.section === section || a.section === ""));
 }
+function needsAuthor(j, date, section, entryIds) {
+  if (attributionsFor(j, date, section).length) return false;
+  return !entryIds.some((id) => {
+    const e = j.entries.get(id);
+    return !!e && !e.deleted && e.by.length > 0;
+  });
+}
 function topicsInUse(j) {
   var _a;
   const n = /* @__PURE__ */ new Map();
@@ -2627,7 +2634,8 @@ ${t.body}` : t.body;
       if (att.length) meta.push(`that was ${att.map((a) => nameOf(plugin.state, a.member)).join(", ")}`);
       if (meta.length) sec.createDiv({ cls: "cmn-muted", text: meta.join(" | ") });
       const acts = sec.createDiv({ cls: "cmn-line-actions" });
-      acts.createEl("button", { text: "That was me" }).onclick = () => new PickModal(plugin, "Who wrote this?", async ([id]) => void await plugin.record("attrib", { date, section: f.key, member: id })).open();
+      if (needsAuthor(j, date, f.key, ids))
+        acts.createEl("button", { text: "That was me" }).onclick = () => new PickModal(plugin, "Who wrote this?", async ([id]) => void await plugin.record("attrib", { date, section: f.key, member: id })).open();
       for (const a of att) acts.createEl("button", { cls: "cmn-link", text: `undo ${nameOf(plugin.state, a.member)}` }).onclick = () => void plugin.record("delete", { target: a.id });
     }
     if (!any) dayEl.createDiv({ cls: "cmn-muted", text: "No journal text that day." });
