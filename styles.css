@@ -14,7 +14,9 @@
 .cmn-row h3 { margin: 0; }
 .cmn-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0 10px; }
 .cmn-chip { border-radius: 999px; border: 2px solid var(--cmn-member, var(--background-modifier-border)); background: var(--background-primary); padding: 6px 14px; min-height: 40px; }
-.cmn-chip.is-on { background: var(--cmn-member, var(--interactive-accent)); color: var(--text-on-accent); border-color: var(--cmn-member, var(--interactive-accent)); }
+/* Selected: filled with the member's colour, black or white text picked for
+   contrast (--cmn-on-member), and a halo so even a black fill has an edge. */
+.cmn-chip.is-on { background: var(--cmn-member, var(--interactive-accent)); color: var(--cmn-on-member, var(--text-on-accent)); border-color: var(--cmn-member, var(--interactive-accent)); font-weight: 600; box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 3px var(--text-muted); }
 .cmn-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
 .cmn-actions button { min-height: 48px; }
 .cmn-link { background: none !important; border: none !important; box-shadow: none !important; color: var(--text-accent); padding: 4px 0; text-decoration: underline; cursor: pointer; }

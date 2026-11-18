@@ -1427,11 +1427,30 @@ var import_obsidian33 = require("obsidian");
 
 // src/modals.ts
 var import_obsidian28 = require("obsidian");
+
+// src/colour.ts
+function onColor(hex) {
+  const h = hex.trim().replace("#", "");
+  const full = /^[0-9a-f]{3}$/i.test(h) ? h.split("").map((c) => c + c).join("") : h;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return "var(--text-on-accent)";
+  const lin = (c) => {
+    const s = c / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  };
+  const L = 0.2126 * lin(parseInt(full.slice(0, 2), 16)) + 0.7152 * lin(parseInt(full.slice(2, 4), 16)) + 0.0722 * lin(parseInt(full.slice(4, 6), 16));
+  return 1.05 / (L + 0.05) >= (L + 0.05) / 0.05 ? "#ffffff" : "#000000";
+}
+function tint(el2, color) {
+  el2.style.setProperty("--cmn-member", color);
+  el2.style.setProperty("--cmn-on-member", onColor(color));
+}
+
+// src/modals.ts
 function memberChips(el2, plugin, chosen, specials) {
   const wrap = el2.createDiv({ cls: "cmn-chips" });
   const add = (id, label, color = "") => {
     const b = wrap.createEl("button", { text: label, cls: "cmn-chip" });
-    if (color) b.style.setProperty("--cmn-member", color);
+    if (color) tint(b, color);
     const sync = () => b.toggleClass("is-on", chosen.has(id));
     b.onclick = () => {
       if (chosen.has(id)) chosen.delete(id);
@@ -2039,7 +2058,7 @@ function speakerPicker(el2, plugin, onChange) {
   const cur = new Set(plugin.speaker());
   for (const m of activeMembers(plugin.state)) {
     const b = row.createEl("button", { cls: "cmn-chip" + (cur.has(m.id) ? " is-on" : ""), text: m.name || "Unnamed" });
-    if (m.color) b.style.setProperty("--cmn-member", m.color);
+    if (m.color) tint(b, m.color);
     b.onclick = () => {
       if (cur.has(m.id)) cur.delete(m.id);
       else cur.add(m.id);
@@ -2198,7 +2217,7 @@ function renderLetters(root, plugin, ui) {
   for (const m of members) {
     const n = unreadLetters(c, [m.id]).length;
     const b = chips.createEl("button", { cls: "cmn-chip" + (ui.letterMember === m.id ? " is-on" : ""), text: `${m.name || "Unnamed"}${n ? ` (${n})` : ""}` });
-    if (m.color) b.style.setProperty("--cmn-member", m.color);
+    if (m.color) tint(b, m.color);
     b.onclick = () => ui.go("letters", { member: m.id });
   }
   if (!ui.letterMember || !s.members.has(ui.letterMember)) ui.letterMember = plugin.speaker()[0] && s.members.has(plugin.speaker()[0]) ? plugin.speaker()[0] : members[0].id;
@@ -2913,7 +2932,7 @@ function renderRelationships(root, plugin, ui, maps, rerender) {
   const legend = root.createDiv({ cls: "cmn-chips" });
   for (const t of types) {
     const c = legend.createSpan({ cls: "cmn-legend", text: `${t.directed ? "\u2192 " : ""}${t.name}` });
-    c.style.setProperty("--cmn-member", t.color);
+    tint(c, t.color);
     if (!t.builtIn)
       c.onclick = () => new ActionsModal(plugin, t.name, "Custom connection type", [
         { label: "Rename", run: () => new TextModal(plugin, "Rename", "", t.name, (v) => v.trim() ? plugin.record("edit", { target: t.id, fields: { name: v.trim() } }).then(() => {
@@ -3114,7 +3133,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
       const where = whereIs(maps, maps.pins.get(m.id));
       const b = ppl.createEl("button", { cls: "cmn-map-row" });
       const dot = b.createSpan({ cls: "cmn-map-dot" });
-      dot.style.setProperty("--cmn-member", m.color || "#888888");
+      tint(dot, m.color || "#888888");
       b.createSpan({ text: m.name || "Unnamed" });
       if (where) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${where}` });
       b.onclick = () => pinActions(m.id);
@@ -3125,7 +3144,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
     const chips = ppl.createDiv({ cls: "cmn-chips" });
     for (const m of off) {
       const c = chips.createEl("button", { cls: "cmn-chip" + (ui.memberToPlace === m.id ? " is-on" : ""), text: m.name || "Unnamed" });
-      if (m.color) c.style.setProperty("--cmn-member", m.color);
+      if (m.color) tint(c, m.color);
       c.onclick = () => {
         ui.tool = "member";
         ui.memberToPlace = m.id;
@@ -3139,7 +3158,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
   for (const pl of places) {
     const b = pls.createEl("button", { cls: "cmn-map-row" });
     const dot = b.createSpan({ cls: "cmn-map-dot" });
-    dot.style.setProperty("--cmn-member", pl.color || "#d9a441");
+    tint(dot, pl.color || "#d9a441");
     b.createSpan({ text: pl.name });
     const here = pinned.filter((m) => whereIs(maps, maps.pins.get(m.id)) === `near ${pl.name}`).map((m) => m.name || "Unnamed");
     if (here.length) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${here.join(", ")}` });
@@ -3149,7 +3168,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
   for (const a of areas.filter((x) => x.name)) {
     const b = pls.createEl("button", { cls: "cmn-map-row" });
     const dot = b.createSpan({ cls: "cmn-map-dot is-area" });
-    dot.style.setProperty("--cmn-member", a.color);
+    tint(dot, a.color);
     b.createSpan({ text: a.name });
     const here = pinned.filter((m) => whereIs(maps, maps.pins.get(m.id)) === `in ${a.name}`).map((m) => m.name || "Unnamed");
     if (here.length) b.createSpan({ cls: "cmn-muted", text: ` \xB7 ${here.join(", ")}` });
@@ -3264,7 +3283,7 @@ function renderHistory(root, plugin, hu, rerender) {
     for (const id of [...who].slice(0, 4)) {
       const dot = dots.createSpan({ cls: "cmn-dot" });
       const c = (_a = s.members.get(id)) == null ? void 0 : _a.color;
-      if (c) dot.style.setProperty("--cmn-member", c);
+      if (c) tint(dot, c);
     }
     if (segs.some((x) => x.kind === "gap")) dots.createSpan({ cls: "cmn-gapdot", text: "\xB7" });
     cell.onclick = () => {
@@ -3287,7 +3306,7 @@ function renderHistory(root, plugin, hu, rerender) {
     for (const g of segs) {
       const seg = bar.createDiv({ cls: "cmn-hseg" + (g.kind === "gap" ? " is-gap" : ""), attr: { style: `left:${g.startMin / 1440 * 100}%;width:${(g.endMin - g.startMin) / 1440 * 100}%`, title: g.label } });
       const c = g.kind === "front" ? (_c = s.members.get((_b = g.who[0]) != null ? _b : "")) == null ? void 0 : _c.color : "";
-      if (c) seg.style.setProperty("--cmn-member", c);
+      if (c) tint(seg, c);
     }
     for (const g of segs) {
       const row = box.createEl("button", { cls: "cmn-member" });
@@ -3483,7 +3502,7 @@ var CommonsView = class extends import_obsidian33.ItemView {
     const chips = here.createDiv({ cls: "cmn-chips" });
     const chip = (id, label, color = "") => {
       const b = chips.createEl("button", { text: label, cls: "cmn-chip" });
-      if (color) b.style.setProperty("--cmn-member", color);
+      if (color) tint(b, color);
       if (cur && cur.who.includes(id)) b.addClass("is-on");
       b.onclick = () => void this.plugin.setHere([id]);
     };
@@ -3570,7 +3589,7 @@ var CommonsView = class extends import_obsidian33.ItemView {
     if (all.length === 0) mem.createEl("p", { cls: "cmn-muted", text: `No ${s.terms.headmates} added yet. Two taps: "+ Add", then "Save" \u2014 details can wait.` });
     for (const m of all) {
       const row = mem.createEl("button", { cls: "cmn-member" + (m.status === "archived" ? " is-archived" : "") });
-      if (m.color) row.style.setProperty("--cmn-member", m.color);
+      if (m.color) tint(row, m.color);
       if (m.avatar && this.app.vault.getAbstractFileByPath(m.avatar)) row.createEl("img", { cls: "cmn-avatar", attr: { src: this.app.vault.adapter.getResourcePath(m.avatar), alt: "" } });
       else row.createSpan({ cls: "cmn-dot" });
       row.createSpan({ text: m.name || "Unnamed" });
