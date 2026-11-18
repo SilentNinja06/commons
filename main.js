@@ -537,6 +537,52 @@ function localTime(iso) {
   return `${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
+// src/markers.ts
+var TAIL = /\s*(?:\^([cj])-([0-9a-f]{8,})|%%\s*([cj]):([0-9a-f]{8,})\s*%%)\s*$/;
+var ANY = /(?:\^([cj])-([0-9a-f]{8,})|%%\s*([cj]):([0-9a-f]{8,})\s*%%)/g;
+function mark(kind, id) {
+  return `%%${kind}:${id}%%`;
+}
+function hasMark(text, kind, id) {
+  return text.includes(`^${kind}-${id}`) || new RegExp(`%%\\s*${kind}:${id}\\s*%%`).test(text);
+}
+function idsIn(text, kind) {
+  var _a, _b;
+  const out = [];
+  for (const m of text.matchAll(ANY)) {
+    const k = (_a = m[1]) != null ? _a : m[3];
+    const id = (_b = m[2]) != null ? _b : m[4];
+    if (k === kind) out.push(id);
+  }
+  return out;
+}
+function stripMarks(text) {
+  return text.split("\n").map((l) => l.replace(TAIL, "")).join("\n");
+}
+function hideMarks(text) {
+  const marks = [];
+  const lines = text.split("\n").map((l) => {
+    const m = l.match(TAIL);
+    if (!m) return l;
+    const shown = l.slice(0, m.index).replace(/\s+$/, "");
+    marks.push({ line: shown, tag: l.slice(shown.length) });
+    return shown;
+  });
+  return { text: lines.join("\n"), marks };
+}
+function restoreMarks(edited, marks) {
+  const lines = edited.split("\n");
+  const used = /* @__PURE__ */ new Set();
+  for (const mk of marks) {
+    const i = lines.findIndex((l, k) => !used.has(k) && l.replace(/\s+$/, "") === mk.line && !TAIL.test(l));
+    if (i >= 0) {
+      used.add(i);
+      lines[i] = lines[i].replace(/\s+$/, "") + mk.tag;
+    }
+  }
+  return lines.join("\n");
+}
+
 // src/comms.ts
 var str2 = (v) => typeof v === "string" ? v : "";
 var strs2 = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
@@ -805,7 +851,7 @@ function arrivalLines(s, day, now, comms) {
 var MIRROR_HEADING = "Commons";
 var MIRROR_MARKER = "%% commons-log %%";
 function blockId(id) {
-  return `^c-${id}`;
+  return mark("c", id);
 }
 function frontLine(s, f) {
   return `- ${localTime(f.when)} ${s.terms.fronting}: ${namesOf(s, f.who)} ${blockId(f.id)}`;
@@ -898,7 +944,7 @@ function foldJournal(events) {
   return j;
 }
 function entryBlockId(id) {
-  return `^j-${id}`;
+  return mark("j", id);
 }
 function entryNoteText(text, authorNames, time, id) {
   return `${text.trim()}
@@ -908,10 +954,10 @@ function heldNoteText(time, id) {
   return `(held journal entry \xB7 ${time}) ${entryBlockId(id)}`;
 }
 function entryIdsIn(text) {
-  return [...text.matchAll(/\^j-([0-9a-f]{8,})/g)].map((m) => m[1]);
+  return idsIn(text, "j");
 }
 function displayText(text) {
-  return text.replace(/\s*\^[jc]-[0-9a-f]{8,}\s*$/gm, "").trim();
+  return stripMarks(text).trim();
 }
 function predatesCommons(date, j) {
   return !j.start || date < j.start;
@@ -1356,7 +1402,7 @@ async function mirrorToDailyNotes(app, s, device, now, opts = {}, comms) {
     }
     try {
       const raw = await readDailyNoteRaw(app, it.date);
-      if (!raw.includes(blockId(it.id))) {
+      if (!hasMark(raw, "c", it.id)) {
         await appendDailyLogLine(app, it.line, { heading: MIRROR_HEADING, marker: MIRROR_MARKER, time: it.time }, it.date);
         written++;
       }
@@ -2341,7 +2387,9 @@ async function renderJournal(root, plugin, ui, jui) {
     const block = ed.createDiv({ cls: "cmn-jfield" });
     block.createDiv({ cls: "cmn-label", text: f.label });
     const ta2 = block.createEl("textarea", { cls: "cmn-input", attr: { rows: "3" } });
-    const fromNote = ((_a = day[f.key]) != null ? _a : "").replace(/^\s+|\s+$/g, "");
+    let baseline = ((_a = day[f.key]) != null ? _a : "").replace(/^\s+|\s+$/g, "");
+    let hidden = hideMarks(baseline);
+    const fromNote = hidden.text;
     const dkey = `journal:${today}:${f.key}`;
     const pending = plugin.drafts.get(dkey);
     ta2.value = pending != null ? pending : fromNote;
@@ -2349,13 +2397,24 @@ async function renderJournal(root, plugin, ui, jui) {
     let timer = null;
     let last = fromNote;
     const save = async () => {
+      var _a2;
       if (ta2.value === last) return;
       try {
         const v = ta2.value;
-        await writeJournalField(app, f.key, v);
-        last = v;
-        if (ta2.value === v) plugin.drafts.clear(dkey);
-        status.setText("Saved");
+        const now = ((_a2 = (await readJournalDay(app, today))[f.key]) != null ? _a2 : "").replace(/^\s+|\s+$/g, "");
+        let out = restoreMarks(v, hidden.marks);
+        let merged = false;
+        if (now !== baseline) {
+          out = mergeLines(now, out);
+          merged = true;
+        }
+        await writeJournalField(app, f.key, out);
+        baseline = out;
+        hidden = hideMarks(out);
+        last = merged ? hidden.text : v;
+        if (merged) ta2.value = hidden.text;
+        if (ta2.value === v || merged) plugin.drafts.clear(dkey);
+        status.setText(merged ? "Saved \u2014 merged with changes from another device" : "Saved");
       } catch (e) {
         status.setText(`Not saved: ${e.message}. Your text is still here.`);
       }
@@ -2528,6 +2587,11 @@ ${t.body}` : t.body;
   const nav = tl.createDiv({ cls: "cmn-line-actions" });
   if (jui.page > 0) nav.createEl("button", { text: "Newer" }).onclick = () => (jui.page -= 1, ui.rerender());
   if ((jui.page + 1) * PAGE < dates.length) nav.createEl("button", { text: "Older" }).onclick = () => (jui.page += 1, ui.rerender());
+}
+function mergeLines(current, mine) {
+  const have = new Set(current.split("\n").map((l) => l.replace(/\s+$/, "")));
+  const extra = mine.split("\n").filter((l) => l.trim() && !have.has(l.replace(/\s+$/, "")));
+  return extra.length ? `${current}${current ? "\n" : ""}${extra.join("\n")}` : current;
 }
 
 // src/mapview.ts
@@ -3242,7 +3306,7 @@ var CommonsView = class extends import_obsidian33.ItemView {
     const chip = (id, label, color = "") => {
       const b = chips.createEl("button", { text: label, cls: "cmn-chip" });
       if (color) b.style.setProperty("--cmn-member", color);
-      if (cur && cur.who.length === 1 && cur.who[0] === id) b.addClass("is-on");
+      if (cur && cur.who.includes(id)) b.addClass("is-on");
       b.onclick = () => void this.plugin.setHere([id]);
     };
     for (const m of activeMembers(s)) chip(m.id, m.name || "Unnamed", m.color);
@@ -3449,7 +3513,11 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
         const f = currentFront(this.state);
         return f ? { names: namesOf(this.state, f.who), when: f.when } : null;
       },
-      members: () => [...this.state.members.values()].filter((m) => m.status !== "archived").map((m) => ({ id: m.id, name: m.name, color: m.color })),
+      members: () => {
+        var _a, _b;
+        const here = new Set((_b = (_a = currentFront(this.state)) == null ? void 0 : _a.who) != null ? _b : []);
+        return [...this.state.members.values()].filter((m) => m.status !== "archived").map((m) => ({ id: m.id, name: m.name, color: m.color, here: here.has(m.id) }));
+      },
       setHere: (who) => this.setHere(who),
       ack: (id) => this.ack(id),
       openView: () => this.openView(),
