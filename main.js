@@ -1607,6 +1607,8 @@ var MemberModal = class extends import_obsidian28.Modal {
   constructor(plugin, existing) {
     super(plugin.app);
     this.plugin = plugin;
+    this.imageReady = async () => {
+    };
     this.m = existing ? { ...existing } : blankMember(newId());
   }
   onOpen() {
@@ -1650,25 +1652,49 @@ var MemberModal = class extends import_obsidian28.Modal {
       row.addButton(
         (b) => b.setButtonText(archived ? "Bring back" : "Archive").onClick(async () => {
           this.m.status = archived ? "active" : "archived";
-          this.close();
-          await this.plugin.saveMember(this.m);
+          await this.save();
         })
       );
     }
     row.addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
-        this.close();
-        await this.plugin.saveMember(this.m);
+        b.setDisabled(true).setButtonText("Saving\u2026");
+        await this.save();
       })
     );
   }
   fullProfile() {
-    fullProfileFields(this.contentEl, this.plugin, this.m);
+    this.imageReady = fullProfileFields(this.contentEl, this.plugin, this.m);
+  }
+  /** Wait for a picture still being copied, then save. */
+  async save() {
+    await this.imageReady();
+    this.close();
+    await this.plugin.saveMember(this.m);
   }
   onClose() {
     this.contentEl.empty();
   }
 };
+function pickImageFile() {
+  return new Promise((resolve) => {
+    const input = document.body.createEl("input", { attr: { type: "file", accept: "image/*" } });
+    input.style.display = "none";
+    let done = false;
+    const finish = (f) => {
+      if (done) return;
+      done = true;
+      input.remove();
+      resolve(f);
+    };
+    input.addEventListener("change", () => {
+      var _a, _b;
+      return finish((_b = (_a = input.files) == null ? void 0 : _a[0]) != null ? _b : null);
+    });
+    input.addEventListener("cancel", () => finish(null));
+    input.click();
+  });
+}
 function fullProfileFields(el2, plugin, m) {
   var _a, _b;
   const det = el2.createEl("details", { cls: "cmn-profile" });
@@ -1688,26 +1714,43 @@ function fullProfileFields(el2, plugin, m) {
   text("Likes", "likes", true);
   text("What to avoid", "avoid", true);
   text("How to approach", "approach", true);
-  const av = new import_obsidian28.Setting(det).setName("Avatar").setDesc(m.avatar ? m.avatar : "An image from your phone or computer.");
+  let pending = null;
+  const av = new import_obsidian28.Setting(det).setName("Avatar").setDesc(m.avatar ? "" : "An image from your phone or computer.");
+  const preview = av.controlEl.createEl("img", { cls: "cmn-avatar cmn-avatar-preview", attr: { alt: "" } });
+  const show = () => {
+    const ok = !!m.avatar && !!plugin.app.vault.getAbstractFileByPath(m.avatar);
+    preview.toggleClass("is-hidden", !ok);
+    if (ok) preview.setAttr("src", plugin.app.vault.adapter.getResourcePath(m.avatar));
+  };
+  show();
   av.addButton(
-    (b) => b.setButtonText(m.avatar ? "Replace" : "Choose image").onClick(() => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = "image/*";
-      input.onchange = async () => {
-        var _a2;
-        const f = (_a2 = input.files) == null ? void 0 : _a2[0];
-        if (!f) return;
-        try {
-          m.avatar = await plugin.saveImage(f);
-          av.setDesc(m.avatar);
-        } catch (e) {
-          new import_obsidian28.Notice(`Couldn't save the image: ${e.message}`);
-        }
-      };
-      input.click();
+    (b) => b.setButtonText(m.avatar ? "Replace" : "Choose image").onClick(async () => {
+      const f = await pickImageFile();
+      if (!f) return;
+      av.setDesc("Saving image\u2026");
+      b.setDisabled(true);
+      pending = plugin.saveImage(f).then((path) => {
+        m.avatar = path;
+        av.setDesc("Ready \u2014 tap Save to keep it.");
+        b.setButtonText("Replace");
+        show();
+      }).catch((e) => {
+        av.setDesc("");
+        new import_obsidian28.Notice(`Couldn't save the image: ${e.message}`);
+      }).finally(() => {
+        b.setDisabled(false);
+        pending = null;
+      });
     })
   );
+  if (m.avatar)
+    av.addExtraButton(
+      (x) => x.setIcon("x").setTooltip("Remove avatar (the image file stays in the vault)").onClick(() => {
+        m.avatar = "";
+        av.setDesc("Removed \u2014 tap Save to keep it.");
+        show();
+      })
+    );
   det.createDiv({ cls: "cmn-label", text: "Custom fields" });
   const list = det.createDiv();
   m.fields = [...(_a = m.fields) != null ? _a : []];
@@ -1754,6 +1797,9 @@ function fullProfileFields(el2, plugin, m) {
     }).open();
   };
   gpaint();
+  return async () => {
+    while (pending) await pending;
+  };
 }
 var StatusesModal = class extends import_obsidian28.Modal {
   constructor(plugin, onSaved = () => {
@@ -3051,20 +3097,15 @@ function renderRelationships(root, plugin, ui, maps, rerender) {
   root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag a person to pin them; tap for their profile." });
 }
 function pickPhoto(plugin) {
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/*";
-  input.onchange = async () => {
-    var _a;
-    const f = (_a = input.files) == null ? void 0 : _a[0];
+  void pickImageFile().then(async (f) => {
     if (!f) return;
+    new import_obsidian31.Notice("Adding the photo\u2026");
     try {
       await plugin.record("mapbg", { path: await plugin.saveImage(f) });
     } catch (e) {
       new import_obsidian31.Notice(`Couldn't save the photo: ${e.message}`);
     }
-  };
-  input.click();
+  });
 }
 function renderWorld(root, plugin, ui, maps, rerender) {
   const s = plugin.state;
