@@ -334,7 +334,14 @@ var DEFAULT_TERMS = {
   fronting: "fronting",
   cofronting: "co-fronting"
 };
-var MEMBER_STATUSES = ["active", "resting", "new", "unknown"];
+var BUILT_IN_STATUSES = [
+  { id: "active", label: "Active", builtIn: true, deleted: false },
+  { id: "resting", label: "Resting", builtIn: true, deleted: false },
+  { id: "new", label: "New", builtIn: true, deleted: false },
+  { id: "unknown", label: "Unknown", builtIn: true, deleted: false },
+  { id: "archived", label: "Archived", builtIn: true, deleted: false }
+];
+var NEW_FOR_MS = 7 * 24 * 60 * 60 * 1e3;
 var SPECIAL = {
   unknown: "?unknown",
   unsure: "?unsure",
@@ -352,8 +359,8 @@ var str = (v) => typeof v === "string" ? v : "";
 var strs = (v) => Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 var HANDOFF_FIELDS = ["did", "unfinished", "body", "headsUp", "held", "to", "by"];
 var GAP_FIELDS = ["clues", "from", "to"];
-function fold(events) {
-  var _a, _b, _c;
+function fold(events, now = /* @__PURE__ */ new Date()) {
+  var _a, _b, _c, _d, _e, _f;
   const s = {
     members: /* @__PURE__ */ new Map(),
     memberHistory: /* @__PURE__ */ new Map(),
@@ -362,6 +369,8 @@ function fold(events) {
     gaps: /* @__PURE__ */ new Map(),
     pinned: "",
     terms: { ...DEFAULT_TERMS },
+    statuses: new Map(BUILT_IN_STATUSES.map((x) => [x.id, { ...x }])),
+    statusSince: /* @__PURE__ */ new Map(),
     lastAt: ""
   };
   const fronts = /* @__PURE__ */ new Map();
@@ -382,8 +391,10 @@ function fold(events) {
         if (!m || typeof m.id !== "string") break;
         const prev = s.members.get(m.id);
         const next = { ...blankMember(m.id), ...prev != null ? prev : {}, ...m };
+        if (typeof next.status !== "string" || !next.status) next.status = (_a = prev == null ? void 0 : prev.status) != null ? _a : "new";
+        if (!prev || prev.status !== next.status) s.statusSince.set(m.id, e.at);
         s.members.set(m.id, next);
-        const h = (_a = s.memberHistory.get(m.id)) != null ? _a : [];
+        const h = (_b = s.memberHistory.get(m.id)) != null ? _b : [];
         h.push(next);
         s.memberHistory.set(m.id, h);
         break;
@@ -426,7 +437,7 @@ function fold(events) {
         break;
       }
       case "edit": {
-        const fields = (_b = e.fields) != null ? _b : {};
+        const fields = (_c = e.fields) != null ? _c : {};
         const fr = fronts.get(str(e.target));
         if (fr) {
           if (Array.isArray(fields.who)) fr.who = strs(fields.who);
@@ -458,8 +469,21 @@ function fold(events) {
       case "pin":
         s.pinned = str(e.text);
         break;
+      case "mstatus": {
+        const id = str(e.status);
+        if (!id) break;
+        const cur = s.statuses.get(id);
+        const label = str(e.label).trim();
+        s.statuses.set(id, {
+          id,
+          label: label || (cur == null ? void 0 : cur.label) || "Status",
+          builtIn: (_d = cur == null ? void 0 : cur.builtIn) != null ? _d : false,
+          deleted: !((_e = cur == null ? void 0 : cur.builtIn) != null ? _e : false) && e.deleted === true
+        });
+        break;
+      }
       case "terms": {
-        const t = (_c = e.terms) != null ? _c : {};
+        const t = (_f = e.terms) != null ? _f : {};
         for (const k of Object.keys(DEFAULT_TERMS)) {
           if (typeof t[k] === "string") s.terms[k] = t[k].trim() || DEFAULT_TERMS[k];
         }
@@ -470,11 +494,22 @@ function fold(events) {
     }
   }
   s.fronts = [...fronts.values()].sort((a, b) => a.when === b.when ? a.at.localeCompare(b.at) : a.when.localeCompare(b.when));
+  for (const m of s.members.values()) {
+    const since = s.statusSince.get(m.id);
+    if (m.status === "new" && since && now.getTime() - Date.parse(since) >= NEW_FOR_MS) s.members.set(m.id, { ...m, status: "active" });
+  }
   return s;
 }
 function currentFront(s) {
   const live = s.fronts.filter((f) => !f.deleted);
   return live.length ? live[live.length - 1] : null;
+}
+function statusLabel(s, id) {
+  var _a, _b;
+  return (_b = (_a = s.statuses.get(id)) == null ? void 0 : _a.label) != null ? _b : id;
+}
+function pickableStatuses(s, current) {
+  return [...s.statuses.values()].filter((x) => x.id !== "archived" && (!x.deleted || x.id === current));
 }
 function activeMembers(s) {
   return [...s.members.values()].filter((m) => m.status !== "archived").sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -1139,7 +1174,7 @@ function hm(minutes) {
   return h ? `${h} h${m ? ` ${m} min` : ""}` : `${m} min`;
 }
 function searchMore(s, j, maps, q) {
-  var _a, _b, _c, _d, _e;
+  var _a, _b, _c, _d, _e, _f, _g;
   const needle = q.trim().toLowerCase();
   if (!needle) return [];
   const hit = (x) => x.toLowerCase().includes(needle);
@@ -1151,7 +1186,7 @@ function searchMore(s, j, maps, q) {
   }
   for (const g of liveGaps(s)) if (hit(g.clues)) out.push({ kind: "gap", id: g.id, where: "gap", at: g.from, snippet: g.clues.slice(0, 120) });
   for (const m of s.members.values()) {
-    const text = [m.name, m.pronouns, m.helps, (_a = m.role) != null ? _a : "", (_b = m.likes) != null ? _b : "", (_c = m.avoid) != null ? _c : "", (_d = m.approach) != null ? _d : "", ...((_e = m.fields) != null ? _e : []).map((f) => `${f.label} ${f.value}`)].join(" ");
+    const text = [m.name, m.pronouns, (_a = m.age) != null ? _a : "", m.helps, (_b = m.notes) != null ? _b : "", (_c = m.role) != null ? _c : "", (_d = m.likes) != null ? _d : "", (_e = m.avoid) != null ? _e : "", (_f = m.approach) != null ? _f : "", ...((_g = m.fields) != null ? _g : []).map((f) => `${f.label} ${f.value}`)].join(" ");
     if (hit(text)) out.push({ kind: "member", id: m.id, where: "member", at: "", snippet: m.name || "Unnamed" });
   }
   for (const e of j.entries.values()) {
@@ -1581,14 +1616,34 @@ var MemberModal = class extends import_obsidian28.Modal {
     this.contentEl.createEl("p", { cls: "cmn-muted", text: "Everything can be left blank and filled in later." });
     new import_obsidian28.Setting(this.contentEl).setName("Name").addText((x) => x.setValue(this.m.name).onChange((v) => this.m.name = v));
     new import_obsidian28.Setting(this.contentEl).setName("Pronouns").addText((x) => x.setValue(this.m.pronouns).onChange((v) => this.m.pronouns = v));
+    new import_obsidian28.Setting(this.contentEl).setName("Age").setDesc('Anything that fits: a number, a range, "ageless", "fluid"\u2026').addText((x) => {
+      var _a;
+      return x.setValue((_a = this.m.age) != null ? _a : "").onChange((v) => this.m.age = v);
+    });
     new import_obsidian28.Setting(this.contentEl).setName("Colour").addColorPicker((x) => x.setValue(this.m.color || "#888888").onChange((v) => this.m.color = v));
     new import_obsidian28.Setting(this.contentEl).setName("What helps").addTextArea((x) => x.setValue(this.m.helps).onChange((v) => this.m.helps = v));
-    this.fullProfile();
-    new import_obsidian28.Setting(this.contentEl).setName("Status").addDropdown((d) => {
-      for (const s of MEMBER_STATUSES) d.addOption(s, s[0].toUpperCase() + s.slice(1));
-      if (this.m.status === "archived") d.addOption("archived", "Archived");
-      d.setValue(this.m.status).onChange((v) => this.m.status = v);
+    new import_obsidian28.Setting(this.contentEl).setName("Notes").setDesc("Anything else worth knowing about them.").addTextArea((x) => {
+      var _a;
+      x.setValue((_a = this.m.notes) != null ? _a : "").onChange((v) => this.m.notes = v);
+      x.inputEl.rows = 5;
+      x.inputEl.addClass("cmn-notes");
     });
+    this.fullProfile();
+    const st = this.plugin.state;
+    new import_obsidian28.Setting(this.contentEl).setName("Status").setDesc(this.m.status === "new" ? `"New" shows as active a week after it's set.` : "").addDropdown((d) => {
+      var _a, _b;
+      for (const x of pickableStatuses(st, this.m.status)) d.addOption(x.id, x.label);
+      if (this.m.status === "archived") d.addOption("archived", (_b = (_a = st.statuses.get("archived")) == null ? void 0 : _a.label) != null ? _b : "Archived");
+      if (!st.statuses.has(this.m.status)) d.addOption(this.m.status, this.m.status);
+      d.setValue(this.m.status).onChange((v) => this.m.status = v);
+    }).addButton(
+      (b) => b.setButtonText("Edit statuses\u2026").onClick(
+        () => new StatusesModal(this.plugin, () => {
+          this.contentEl.empty();
+          this.onOpen();
+        }).open()
+      )
+    );
     const row = new import_obsidian28.Setting(this.contentEl);
     if (this.plugin.state.members.has(this.m.id)) {
       const archived = this.m.status === "archived";
@@ -1700,6 +1755,59 @@ function fullProfileFields(el2, plugin, m) {
   };
   gpaint();
 }
+var StatusesModal = class extends import_obsidian28.Modal {
+  constructor(plugin, onSaved = () => {
+  }) {
+    super(plugin.app);
+    this.plugin = plugin;
+    this.onSaved = onSaved;
+    this.rows = [];
+    for (const x of plugin.state.statuses.values()) if (!x.deleted) this.rows.push({ id: x.id, label: x.label, builtIn: x.builtIn, was: x.label, remove: false });
+  }
+  onOpen() {
+    scopeEl(this.contentEl);
+    this.titleEl.setText("Statuses");
+    this.contentEl.createEl("p", { cls: "cmn-muted", text: "Rename any of them to fit your headspace, or add your own. Removing one doesn't change anyone who has it." });
+    const list = this.contentEl.createDiv();
+    const inUse = (id) => [...this.plugin.state.members.values()].filter((m) => m.status === id).length;
+    const paint = () => {
+      list.empty();
+      for (const r of this.rows) {
+        if (r.remove) continue;
+        const n = inUse(r.id);
+        const set = new import_obsidian28.Setting(list).setDesc(`${r.builtIn ? "Built in" : "Your own"}${n ? ` \xB7 ${n} ${n === 1 ? "has" : "have"} it` : ""}`).addText((x) => x.setPlaceholder("Name").setValue(r.label).onChange((v) => r.label = v));
+        if (!r.builtIn)
+          set.addExtraButton(
+            (b) => b.setIcon("x").setTooltip("Remove this status").onClick(() => {
+              r.remove = true;
+              paint();
+            })
+          );
+      }
+    };
+    paint();
+    new import_obsidian28.Setting(this.contentEl).addButton(
+      (b) => b.setButtonText("+ New status").onClick(() => {
+        this.rows.push({ id: `st-${newId()}`, label: "", builtIn: false, was: "", remove: false });
+        paint();
+      })
+    ).addButton(
+      (b) => b.setButtonText("Save").setCta().onClick(async () => {
+        this.close();
+        for (const r of this.rows) {
+          const label = r.label.trim();
+          if (r.remove) {
+            if (r.was) await this.plugin.record("mstatus", { status: r.id, label: r.was, deleted: true });
+          } else if (label && label !== r.was) await this.plugin.record("mstatus", { status: r.id, label });
+        }
+        this.onSaved();
+      })
+    );
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+};
 var TextModal = class extends import_obsidian28.Modal {
   constructor(plugin, title, desc, value, onSave) {
     super(plugin.app);
@@ -3595,7 +3703,8 @@ var CommonsView = class extends import_obsidian33.ItemView {
       row.createSpan({ text: m.name || "Unnamed" });
       if (m.pronouns) row.createSpan({ cls: "cmn-muted", text: ` ${m.pronouns}` });
       if (m.role) row.createSpan({ cls: "cmn-muted", text: ` \xB7 ${m.role}` });
-      row.createSpan({ cls: "cmn-muted", text: ` \xB7 ${m.status}` });
+      if (m.age) row.createSpan({ cls: "cmn-muted", text: ` \xB7 ${m.age}` });
+      row.createSpan({ cls: "cmn-muted", text: ` \xB7 ${statusLabel(s, m.status)}` });
       if (m.helps) row.createSpan({ cls: "cmn-helps", text: m.helps });
       row.onclick = () => new MemberModal(this.plugin, m).open();
     }

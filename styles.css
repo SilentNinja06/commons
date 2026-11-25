@@ -119,3 +119,4 @@ body:not(.is-mobile) .cmn-actions-list button { min-height: 32px; }
 .cmn-world .cmn-draft { stroke-width: calc(3px * var(--cmn-k, 1)); }
 .cmn-world .cmn-place-dot, .cmn-world .cmn-person circle { stroke-width: 2; }
 body.is-mobile .cmn-zoom { display: none; }
+.cmn-notes { width: 100%; min-height: 6em; }
