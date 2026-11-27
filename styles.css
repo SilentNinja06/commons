@@ -120,4 +120,3 @@ body:not(.is-mobile) .cmn-actions-list button { min-height: 32px; }
 .cmn-world .cmn-place-dot, .cmn-world .cmn-person circle { stroke-width: 2; }
 body.is-mobile .cmn-zoom { display: none; }
 .cmn-notes { width: 100%; min-height: 6em; }
-.cmn-avatar-preview { width: 40px; height: 40px; } .cmn-avatar-preview.is-hidden { display: none; }

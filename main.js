@@ -14,9 +14,9 @@ var __export = (target, all) => {
 };
 var __copyProps = (to, from, except, desc) => {
   if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+    for (let key2 of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key2) && key2 !== except)
+        __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
   }
   return to;
 };
@@ -28,7 +28,7 @@ __export(main_exports, {
   default: () => CommonsPlugin
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian35 = require("obsidian");
+var import_obsidian36 = require("obsidian");
 
 // ../../packages/ui/dist/constants.js
 var CLS = "mrd";
@@ -64,8 +64,54 @@ function scopeEl(el2, opts = {}) {
     el2.classList.add(cls("skin", "accent"));
 }
 
-// src/store.ts
+// ../../packages/ui/dist/startup.js
 var import_obsidian3 = require("obsidian");
+var DASHBOARD_PLUGIN_IDS = ["meridian-dash", "daily-dash"];
+function dashboardInstalled(app) {
+  var _a;
+  const enabled = (_a = app.plugins) === null || _a === void 0 ? void 0 : _a.enabledPlugins;
+  return DASHBOARD_PLUGIN_IDS.some((id) => {
+    var _a2;
+    return (_a2 = enabled === null || enabled === void 0 ? void 0 : enabled.has) === null || _a2 === void 0 ? void 0 : _a2.call(enabled, id);
+  });
+}
+var key = (pluginId) => `${pluginId}:open-on-startup`;
+function opensOnStartup(app, pluginId) {
+  try {
+    return app.loadLocalStorage(key(pluginId)) === true;
+  } catch (_a) {
+    return false;
+  }
+}
+function startupSetting(container, app, pluginId, label) {
+  if (dashboardInstalled(app))
+    return;
+  new import_obsidian3.Setting(container).setName(`Open ${label} when Obsidian starts`).setDesc("On this device. Hidden while a dashboard (MERIDIAN Dash or Daily Dashboard) is installed, since that opens first.").addToggle((t) => t.setValue(opensOnStartup(app, pluginId)).onChange((v) => {
+    try {
+      app.saveLocalStorage(key(pluginId), v ? true : null);
+    } catch (_a) {
+    }
+  }));
+}
+async function openViewOnStartup(app, pluginId, viewType) {
+  var _a, _b;
+  if (dashboardInstalled(app) || !opensOnStartup(app, pluginId))
+    return;
+  const ws = app.workspace;
+  const existing = ws.getLeavesOfType(viewType)[0];
+  if (existing) {
+    ws.revealLeaf(existing);
+    return;
+  }
+  const active = ws.getMostRecentLeaf();
+  const empty = active && ((_b = (_a = active.view) === null || _a === void 0 ? void 0 : _a.getViewType) === null || _b === void 0 ? void 0 : _b.call(_a)) === "empty";
+  const leaf = empty ? active : ws.getLeaf("tab");
+  await leaf.setViewState({ type: viewType, active: true });
+  ws.revealLeaf(leaf);
+}
+
+// src/store.ts
+var import_obsidian4 = require("obsidian");
 
 // src/log.ts
 var LOG_FENCE = "```commons";
@@ -160,13 +206,13 @@ var CommonsStore = class {
     return this.app;
   }
   folder() {
-    return (0, import_obsidian3.normalizePath)((this.getFolder() || "Commons").trim());
+    return (0, import_obsidian4.normalizePath)((this.getFolder() || "Commons").trim());
   }
   logRoot() {
     return `${this.folder()}/log`;
   }
   isLogPath(path) {
-    return (0, import_obsidian3.normalizePath)(path).startsWith(this.logRoot() + "/");
+    return (0, import_obsidian4.normalizePath)(path).startsWith(this.logRoot() + "/");
   }
   /** This device's stable id (local storage: per device, never synced). */
   device() {
@@ -227,7 +273,7 @@ var CommonsStore = class {
   pathFor(e) {
     const d = new Date(e.at);
     const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    return (0, import_obsidian3.normalizePath)(`${this.logRoot()}/${month}/${e.dev}.md`);
+    return (0, import_obsidian4.normalizePath)(`${this.logRoot()}/${month}/${e.dev}.md`);
   }
   /** Move outbox entries into this device's log files. Returns how many are
    * still waiting. Safe to call any time; idempotent. */
@@ -247,7 +293,7 @@ var CommonsStore = class {
       try {
         await this.writeTo(path, evs);
         const f = this.app.vault.getAbstractFileByPath(path);
-        const back = f instanceof import_obsidian3.TFile ? parseLog(await this.app.vault.read(f)).events : [];
+        const back = f instanceof import_obsidian4.TFile ? parseLog(await this.app.vault.read(f)).events : [];
         const have = new Set(back.map((e) => e.id));
         for (const e of evs) if (have.has(e.id)) done.add(e.id);
       } catch (err) {
@@ -260,7 +306,7 @@ var CommonsStore = class {
   }
   async writeTo(path, evs) {
     const existing = this.app.vault.getAbstractFileByPath(path);
-    if (existing instanceof import_obsidian3.TFile) {
+    if (existing instanceof import_obsidian4.TFile) {
       await this.app.vault.process(existing, (raw) => appendToLog(raw, evs));
       return;
     }
@@ -269,15 +315,15 @@ var CommonsStore = class {
       await this.app.vault.create(path, newLogFile(evs));
     } catch (e) {
       const again = this.app.vault.getAbstractFileByPath(path);
-      if (again instanceof import_obsidian3.TFile) await this.app.vault.process(again, (raw) => appendToLog(raw, evs));
+      if (again instanceof import_obsidian4.TFile) await this.app.vault.process(again, (raw) => appendToLog(raw, evs));
       else throw e;
     }
   }
   async ensureFolder(dir) {
-    const parts = (0, import_obsidian3.normalizePath)(dir).split("/");
+    const parts = (0, import_obsidian4.normalizePath)(dir).split("/");
     for (let i = 1; i <= parts.length; i++) {
       const p = parts.slice(0, i).join("/");
-      if (this.app.vault.getAbstractFileByPath(p) instanceof import_obsidian3.TFolder) continue;
+      if (this.app.vault.getAbstractFileByPath(p) instanceof import_obsidian4.TFolder) continue;
       try {
         await this.app.vault.createFolder(p);
       } catch (e) {
@@ -298,17 +344,17 @@ var Drafts = class {
     } catch (e) {
     }
   }
-  get(key) {
-    return this.map[key];
+  get(key2) {
+    return this.map[key2];
   }
-  set(key, value) {
-    if (value === "") delete this.map[key];
-    else this.map[key] = value;
+  set(key2, value) {
+    if (value === "") delete this.map[key2];
+    else this.map[key2] = value;
     this.persist();
   }
-  clear(key) {
-    if (key in this.map) {
-      delete this.map[key];
+  clear(key2) {
+    if (key2 in this.map) {
+      delete this.map[key2];
       this.persist();
     }
   }
@@ -319,10 +365,10 @@ var Drafts = class {
     }
   }
   /** Restore `el`'s draft (if any) and keep it updated as the person types. */
-  bind(el2, key) {
-    const d = this.get(key);
+  bind(el2, key2) {
+    const d = this.get(key2);
     if (d !== void 0) el2.value = d;
-    el2.addEventListener("input", () => this.set(key, el2.value));
+    el2.addEventListener("input", () => this.set(key2, el2.value));
   }
 };
 
@@ -1064,15 +1110,15 @@ async function readJournalDay(app, date) {
     return {};
   }
 }
-async function writeJournalField(app, key, text) {
+async function writeJournalField(app, key2, text) {
   const a = api(app);
   if (!(a == null ? void 0 : a.writeJournalField)) throw new Error("the dashboard isn't available");
-  if (!await a.writeJournalField(key, text)) throw new Error(`unknown section ${key}`);
+  if (!await a.writeJournalField(key2, text)) throw new Error(`unknown section ${key2}`);
 }
-async function appendJournalEntry(app, key, text) {
+async function appendJournalEntry(app, key2, text) {
   var _a, _b, _c;
   try {
-    return (_c = await ((_b = (_a = api(app)) == null ? void 0 : _a.appendJournalEntry) == null ? void 0 : _b.call(_a, key, text))) != null ? _c : false;
+    return (_c = await ((_b = (_a = api(app)) == null ? void 0 : _a.appendJournalEntry) == null ? void 0 : _b.call(_a, key2, text))) != null ? _c : false;
   } catch (e) {
     console.warn("commons: appending a journal entry failed", e);
     return false;
@@ -1199,16 +1245,16 @@ function searchMore(s, j, maps, q) {
 }
 
 // ../../packages/dash-core/src/core/ics.ts
-var import_obsidian4 = require("obsidian");
-
-// ../../packages/dash-core/src/core/localeventsstore.ts
 var import_obsidian5 = require("obsidian");
 
+// ../../packages/dash-core/src/core/localeventsstore.ts
+var import_obsidian6 = require("obsidian");
+
 // ../../packages/dash-core/src/core/todostore.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // ../../packages/dash-core/src/core/dailynote.ts
-var import_obsidian6 = require("obsidian");
+var import_obsidian7 = require("obsidian");
 function getDailyNotesOptions(app) {
   var _a, _b, _c, _d;
   const dn = (_b = (_a = app.internalPlugins) == null ? void 0 : _a.getPluginById) == null ? void 0 : _b.call(_a, "daily-notes");
@@ -1219,29 +1265,29 @@ function dailyNotePath(app, date) {
   const opts = getDailyNotesOptions(app);
   const format = opts.format || "YYYY-MM-DD";
   const folder = ((_a = opts.folder) != null ? _a : "").trim().replace(/\/+$/, "");
-  const d = date != null ? date : (0, import_obsidian6.moment)().format("YYYY-MM-DD");
-  const name = (0, import_obsidian6.moment)(d, "YYYY-MM-DD").format(format);
-  return (0, import_obsidian6.normalizePath)((folder ? folder + "/" : "") + name + ".md");
+  const d = date != null ? date : (0, import_obsidian7.moment)().format("YYYY-MM-DD");
+  const name = (0, import_obsidian7.moment)(d, "YYYY-MM-DD").format(format);
+  return (0, import_obsidian7.normalizePath)((folder ? folder + "/" : "") + name + ".md");
 }
 function getDailyNoteFile(app, date) {
   const f = app.vault.getAbstractFileByPath(dailyNotePath(app, date));
-  return f instanceof import_obsidian6.TFile ? f : null;
+  return f instanceof import_obsidian7.TFile ? f : null;
 }
 async function ensureDailyNote(app, date) {
   const path = dailyNotePath(app, date);
   const existing = app.vault.getAbstractFileByPath(path);
-  if (existing instanceof import_obsidian6.TFile) return existing;
+  if (existing instanceof import_obsidian7.TFile) return existing;
   await ensureParentFolder(app, path);
   const opts = getDailyNotesOptions(app);
-  const body = await renderDailyTemplate(app, opts, path, date != null ? date : (0, import_obsidian6.moment)().format("YYYY-MM-DD"));
+  const body = await renderDailyTemplate(app, opts, path, date != null ? date : (0, import_obsidian7.moment)().format("YYYY-MM-DD"));
   const raced = app.vault.getAbstractFileByPath(path);
-  if (raced instanceof import_obsidian6.TFile) return raced;
+  if (raced instanceof import_obsidian7.TFile) return raced;
   return app.vault.create(path, body);
 }
 async function ensureParentFolder(app, path) {
   const dir = path.split("/").slice(0, -1).join("/");
   if (!dir) return;
-  if (app.vault.getAbstractFileByPath(dir) instanceof import_obsidian6.TFolder) return;
+  if (app.vault.getAbstractFileByPath(dir) instanceof import_obsidian7.TFolder) return;
   await app.vault.createFolder(dir).catch(() => {
   });
 }
@@ -1249,15 +1295,15 @@ async function renderDailyTemplate(app, opts, dailyPath, date) {
   var _a, _b, _c;
   const templateSetting = ((_a = opts.template) != null ? _a : "").trim();
   if (!templateSetting) return "";
-  const templatePath = (0, import_obsidian6.normalizePath)(
+  const templatePath = (0, import_obsidian7.normalizePath)(
     templateSetting.endsWith(".md") ? templateSetting : templateSetting + ".md"
   );
   const tFile = app.vault.getAbstractFileByPath(templatePath);
-  if (!(tFile instanceof import_obsidian6.TFile)) return "";
+  if (!(tFile instanceof import_obsidian7.TFile)) return "";
   const raw = await app.vault.cachedRead(tFile);
   const basename = (_c = (_b = dailyPath.split("/").pop()) == null ? void 0 : _b.replace(/\.md$/, "")) != null ? _c : "";
-  const m = (0, import_obsidian6.moment)(date, "YYYY-MM-DD");
-  const now = (0, import_obsidian6.moment)();
+  const m = (0, import_obsidian7.moment)(date, "YYYY-MM-DD");
+  const now = (0, import_obsidian7.moment)();
   return raw.replace(/{{\s*title\s*}}/gi, basename).replace(/{{\s*date(?::([^}]+))?\s*}}/gi, (_, fmt) => m.format(fmt || "YYYY-MM-DD")).replace(/{{\s*time(?::([^}]+))?\s*}}/gi, (_, fmt) => now.format(fmt || "HH:mm"));
 }
 var PLUGIN_LOG_LINE = /^- \d{2}:\d{2}\b/;
@@ -1294,7 +1340,7 @@ function openEditorFor(app, file) {
   var _a;
   for (const leaf of app.workspace.getLeavesOfType("markdown")) {
     const view = leaf.view;
-    if (view instanceof import_obsidian6.MarkdownView && ((_a = view.file) == null ? void 0 : _a.path) === file.path) return view;
+    if (view instanceof import_obsidian7.MarkdownView && ((_a = view.file) == null ? void 0 : _a.path) === file.path) return view;
   }
   return null;
 }
@@ -1336,64 +1382,64 @@ async function readDailyNoteRaw(app, date) {
 }
 
 // ../../packages/dash-core/src/core/directivesstore.ts
-var import_obsidian8 = require("obsidian");
-
-// ../../packages/dash-core/src/core/aicredsstore.ts
 var import_obsidian9 = require("obsidian");
 
-// ../../packages/dash-core/src/core/layoutstore.ts
+// ../../packages/dash-core/src/core/aicredsstore.ts
 var import_obsidian10 = require("obsidian");
 
-// ../../packages/dash-core/src/core/jsonliststore.ts
+// ../../packages/dash-core/src/core/layoutstore.ts
 var import_obsidian11 = require("obsidian");
 
-// ../../packages/dash-core/src/core/library.ts
+// ../../packages/dash-core/src/core/jsonliststore.ts
 var import_obsidian12 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/promptmodal.ts
+// ../../packages/dash-core/src/core/library.ts
 var import_obsidian13 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/calendar.ts
+// ../../packages/dash-core/src/panels/promptmodal.ts
 var import_obsidian14 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/todomodal.ts
+// ../../packages/dash-core/src/panels/calendar.ts
 var import_obsidian15 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/categorymodals.ts
+// ../../packages/dash-core/src/panels/todomodal.ts
 var import_obsidian16 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/clock.ts
+// ../../packages/dash-core/src/panels/categorymodals.ts
 var import_obsidian17 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/localeventmodal.ts
+// ../../packages/dash-core/src/panels/clock.ts
 var import_obsidian18 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/meals.ts
+// ../../packages/dash-core/src/panels/localeventmodal.ts
 var import_obsidian19 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/journal.ts
+// ../../packages/dash-core/src/panels/meals.ts
 var import_obsidian20 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/weeklygoals.ts
+// ../../packages/dash-core/src/panels/journal.ts
 var import_obsidian21 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/secondbrain.ts
+// ../../packages/dash-core/src/panels/weeklygoals.ts
 var import_obsidian22 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/search.ts
+// ../../packages/dash-core/src/panels/secondbrain.ts
 var import_obsidian23 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/todo.ts
+// ../../packages/dash-core/src/panels/search.ts
 var import_obsidian24 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/weekreview.ts
+// ../../packages/dash-core/src/panels/todo.ts
 var import_obsidian25 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/agenda.ts
+// ../../packages/dash-core/src/panels/weekreview.ts
 var import_obsidian26 = require("obsidian");
 
-// ../../packages/dash-core/src/panels/weekprint.ts
+// ../../packages/dash-core/src/panels/agenda.ts
 var import_obsidian27 = require("obsidian");
+
+// ../../packages/dash-core/src/panels/weekprint.ts
+var import_obsidian28 = require("obsidian");
 
 // src/mirror.ts
 var MIRRORED_KEY = "commons:mirrored";
@@ -1458,10 +1504,10 @@ async function mirrorToDailyNotes(app, s, device, now, opts = {}, comms) {
 }
 
 // src/view.ts
-var import_obsidian33 = require("obsidian");
+var import_obsidian34 = require("obsidian");
 
 // src/modals.ts
-var import_obsidian28 = require("obsidian");
+var import_obsidian29 = require("obsidian");
 
 // src/colour.ts
 function onColor(hex) {
@@ -1506,7 +1552,7 @@ function toLocalInput(d) {
   const p = (n) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
-var HereModal = class extends import_obsidian28.Modal {
+var HereModal = class extends import_obsidian29.Modal {
   constructor(plugin) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1520,12 +1566,12 @@ var HereModal = class extends import_obsidian28.Modal {
     this.contentEl.createEl("p", { cls: "cmn-muted", text: `Pick one or several. ${t.cofronting[0].toUpperCase() + t.cofronting.slice(1)} is fine, and so is not knowing.` });
     memberChips(this.contentEl, this.plugin, chosen, true);
     let when2 = "";
-    new import_obsidian28.Setting(this.contentEl).setName("Earlier than now?").setDesc("Leave empty for now.").addText((x) => {
+    new import_obsidian29.Setting(this.contentEl).setName("Earlier than now?").setDesc("Leave empty for now.").addText((x) => {
       x.inputEl.type = "datetime-local";
       x.inputEl.max = toLocalInput(/* @__PURE__ */ new Date());
       x.onChange((v) => when2 = v);
     });
-    new import_obsidian28.Setting(this.contentEl).addButton(
+    new import_obsidian29.Setting(this.contentEl).addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
         const who = chosen.size ? [...chosen] : [SPECIAL.unknown];
         this.close();
@@ -1537,7 +1583,7 @@ var HereModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var HandoffModal = class extends import_obsidian28.Modal {
+var HandoffModal = class extends import_obsidian29.Modal {
   constructor(plugin, by) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1548,7 +1594,7 @@ var HandoffModal = class extends import_obsidian28.Modal {
     this.titleEl.setText("Handoff");
     this.contentEl.createEl("p", { cls: "cmn-muted", text: "Everything is optional. A few words is plenty." });
     const v = { did: "", unfinished: "", body: "", headsUp: "", held: false };
-    const area = (name, label, ph) => new import_obsidian28.Setting(this.contentEl).setName(label).addTextArea((x) => {
+    const area = (name, label, ph) => new import_obsidian29.Setting(this.contentEl).setName(label).addTextArea((x) => {
       x.setPlaceholder(ph).onChange((s) => v[name] = s);
       x.inputEl.rows = 2;
     });
@@ -1564,12 +1610,12 @@ var HandoffModal = class extends import_obsidian28.Modal {
       this.contentEl.createEl("div", { cls: "cmn-label", text: "For (optional)" });
       memberChips(this.contentEl, this.plugin, to, false);
     }
-    new import_obsidian28.Setting(this.contentEl).setName("Hold it").setDesc("Kept behind a tap: not shown in previews, and only a placeholder goes in the daily note. A courtesy, not encryption.").addToggle((x) => x.onChange((on) => v.held = on));
-    new import_obsidian28.Setting(this.contentEl).addButton((b) => b.setButtonText("Skip").onClick(() => this.close())).addButton(
+    new import_obsidian29.Setting(this.contentEl).setName("Hold it").setDesc("Kept behind a tap: not shown in previews, and only a placeholder goes in the daily note. A courtesy, not encryption.").addToggle((x) => x.onChange((on) => v.held = on));
+    new import_obsidian29.Setting(this.contentEl).addButton((b) => b.setButtonText("Skip").onClick(() => this.close())).addButton(
       (b) => b.setButtonText("Leave it").setCta().onClick(async () => {
         this.close();
         await this.plugin.record("handoff", { ...v, by: [...by], to: [...to], when: (/* @__PURE__ */ new Date()).toISOString() });
-        new import_obsidian28.Notice("Handoff left.");
+        new import_obsidian29.Notice("Handoff left.");
       })
     );
   }
@@ -1577,7 +1623,7 @@ var HandoffModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var GapCluesModal = class extends import_obsidian28.Modal {
+var GapCluesModal = class extends import_obsidian29.Modal {
   constructor(plugin, gapId) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1591,8 +1637,8 @@ var GapCluesModal = class extends import_obsidian28.Modal {
       text: `That's all it takes. If you notice any clues (dishes done, a new message, a receipt), add them here. Anyone can add "that was me" later.`
     });
     let clues = "";
-    new import_obsidian28.Setting(this.contentEl).setName("Clues").addTextArea((x) => x.onChange((s) => clues = s));
-    new import_obsidian28.Setting(this.contentEl).addButton((b) => b.setButtonText("Done").onClick(() => this.close())).addButton(
+    new import_obsidian29.Setting(this.contentEl).setName("Clues").addTextArea((x) => x.onChange((s) => clues = s));
+    new import_obsidian29.Setting(this.contentEl).addButton((b) => b.setButtonText("Done").onClick(() => this.close())).addButton(
       (b) => b.setButtonText("Save clues").setCta().onClick(async () => {
         this.close();
         if (clues.trim()) await this.plugin.record("edit", { target: this.gapId, fields: { clues } });
@@ -1603,12 +1649,10 @@ var GapCluesModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var MemberModal = class extends import_obsidian28.Modal {
+var MemberModal = class extends import_obsidian29.Modal {
   constructor(plugin, existing) {
     super(plugin.app);
     this.plugin = plugin;
-    this.imageReady = async () => {
-    };
     this.m = existing ? { ...existing } : blankMember(newId());
   }
   onOpen() {
@@ -1616,15 +1660,15 @@ var MemberModal = class extends import_obsidian28.Modal {
     const t = this.plugin.state.terms;
     this.titleEl.setText(this.m.name ? this.m.name : `New ${t.headmate}`);
     this.contentEl.createEl("p", { cls: "cmn-muted", text: "Everything can be left blank and filled in later." });
-    new import_obsidian28.Setting(this.contentEl).setName("Name").addText((x) => x.setValue(this.m.name).onChange((v) => this.m.name = v));
-    new import_obsidian28.Setting(this.contentEl).setName("Pronouns").addText((x) => x.setValue(this.m.pronouns).onChange((v) => this.m.pronouns = v));
-    new import_obsidian28.Setting(this.contentEl).setName("Age").setDesc('Anything that fits: a number, a range, "ageless", "fluid"\u2026').addText((x) => {
+    new import_obsidian29.Setting(this.contentEl).setName("Name").addText((x) => x.setValue(this.m.name).onChange((v) => this.m.name = v));
+    new import_obsidian29.Setting(this.contentEl).setName("Pronouns").addText((x) => x.setValue(this.m.pronouns).onChange((v) => this.m.pronouns = v));
+    new import_obsidian29.Setting(this.contentEl).setName("Age").setDesc('Anything that fits: a number, a range, "ageless", "fluid"\u2026').addText((x) => {
       var _a;
       return x.setValue((_a = this.m.age) != null ? _a : "").onChange((v) => this.m.age = v);
     });
-    new import_obsidian28.Setting(this.contentEl).setName("Colour").addColorPicker((x) => x.setValue(this.m.color || "#888888").onChange((v) => this.m.color = v));
-    new import_obsidian28.Setting(this.contentEl).setName("What helps").addTextArea((x) => x.setValue(this.m.helps).onChange((v) => this.m.helps = v));
-    new import_obsidian28.Setting(this.contentEl).setName("Notes").setDesc("Anything else worth knowing about them.").addTextArea((x) => {
+    new import_obsidian29.Setting(this.contentEl).setName("Colour").addColorPicker((x) => x.setValue(this.m.color || "#888888").onChange((v) => this.m.color = v));
+    new import_obsidian29.Setting(this.contentEl).setName("What helps").addTextArea((x) => x.setValue(this.m.helps).onChange((v) => this.m.helps = v));
+    new import_obsidian29.Setting(this.contentEl).setName("Notes").setDesc("Anything else worth knowing about them.").addTextArea((x) => {
       var _a;
       x.setValue((_a = this.m.notes) != null ? _a : "").onChange((v) => this.m.notes = v);
       x.inputEl.rows = 5;
@@ -1632,7 +1676,7 @@ var MemberModal = class extends import_obsidian28.Modal {
     });
     this.fullProfile();
     const st = this.plugin.state;
-    new import_obsidian28.Setting(this.contentEl).setName("Status").setDesc(this.m.status === "new" ? `"New" shows as active a week after it's set.` : "").addDropdown((d) => {
+    new import_obsidian29.Setting(this.contentEl).setName("Status").setDesc(this.m.status === "new" ? `"New" shows as active a week after it's set.` : "").addDropdown((d) => {
       var _a, _b;
       for (const x of pickableStatuses(st, this.m.status)) d.addOption(x.id, x.label);
       if (this.m.status === "archived") d.addOption("archived", (_b = (_a = st.statuses.get("archived")) == null ? void 0 : _a.label) != null ? _b : "Archived");
@@ -1646,118 +1690,77 @@ var MemberModal = class extends import_obsidian28.Modal {
         }).open()
       )
     );
-    const row = new import_obsidian28.Setting(this.contentEl);
+    const row = new import_obsidian29.Setting(this.contentEl);
     if (this.plugin.state.members.has(this.m.id)) {
       const archived = this.m.status === "archived";
       row.addButton(
         (b) => b.setButtonText(archived ? "Bring back" : "Archive").onClick(async () => {
           this.m.status = archived ? "active" : "archived";
-          await this.save();
+          this.close();
+          await this.plugin.saveMember(this.m);
         })
       );
     }
     row.addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
-        b.setDisabled(true).setButtonText("Saving\u2026");
-        await this.save();
+        this.close();
+        await this.plugin.saveMember(this.m);
       })
     );
   }
   fullProfile() {
-    this.imageReady = fullProfileFields(this.contentEl, this.plugin, this.m);
-  }
-  /** Wait for a picture still being copied, then save. */
-  async save() {
-    await this.imageReady();
-    this.close();
-    await this.plugin.saveMember(this.m);
+    fullProfileFields(this.contentEl, this.plugin, this.m);
   }
   onClose() {
     this.contentEl.empty();
   }
 };
-function pickImageFile() {
-  return new Promise((resolve) => {
-    const input = document.body.createEl("input", { attr: { type: "file", accept: "image/*" } });
-    input.style.display = "none";
-    let done = false;
-    const finish = (f) => {
-      if (done) return;
-      done = true;
-      input.remove();
-      resolve(f);
-    };
-    input.addEventListener("change", () => {
-      var _a, _b;
-      return finish((_b = (_a = input.files) == null ? void 0 : _a[0]) != null ? _b : null);
-    });
-    input.addEventListener("cancel", () => finish(null));
-    input.click();
-  });
-}
 function fullProfileFields(el2, plugin, m) {
   var _a, _b;
   const det = el2.createEl("details", { cls: "cmn-profile" });
   det.createEl("summary", { text: "Full profile" });
-  const text = (name, key, area = false) => {
-    const st = new import_obsidian28.Setting(det).setName(name);
+  const text = (name, key2, area = false) => {
+    const st = new import_obsidian29.Setting(det).setName(name);
     if (area) st.addTextArea((x) => {
       var _a2;
-      return x.setValue((_a2 = m[key]) != null ? _a2 : "").onChange((v) => m[key] = v);
+      return x.setValue((_a2 = m[key2]) != null ? _a2 : "").onChange((v) => m[key2] = v);
     });
     else st.addText((x) => {
       var _a2;
-      return x.setValue((_a2 = m[key]) != null ? _a2 : "").onChange((v) => m[key] = v);
+      return x.setValue((_a2 = m[key2]) != null ? _a2 : "").onChange((v) => m[key2] = v);
     });
   };
   text("Role", "role");
   text("Likes", "likes", true);
   text("What to avoid", "avoid", true);
   text("How to approach", "approach", true);
-  let pending = null;
-  const av = new import_obsidian28.Setting(det).setName("Avatar").setDesc(m.avatar ? "" : "An image from your phone or computer.");
-  const preview = av.controlEl.createEl("img", { cls: "cmn-avatar cmn-avatar-preview", attr: { alt: "" } });
-  const show = () => {
-    const ok = !!m.avatar && !!plugin.app.vault.getAbstractFileByPath(m.avatar);
-    preview.toggleClass("is-hidden", !ok);
-    if (ok) preview.setAttr("src", plugin.app.vault.adapter.getResourcePath(m.avatar));
-  };
-  show();
+  const av = new import_obsidian29.Setting(det).setName("Avatar").setDesc(m.avatar ? m.avatar : "An image from your phone or computer.");
   av.addButton(
-    (b) => b.setButtonText(m.avatar ? "Replace" : "Choose image").onClick(async () => {
-      const f = await pickImageFile();
-      if (!f) return;
-      av.setDesc("Saving image\u2026");
-      b.setDisabled(true);
-      pending = plugin.saveImage(f).then((path) => {
-        m.avatar = path;
-        av.setDesc("Ready \u2014 tap Save to keep it.");
-        b.setButtonText("Replace");
-        show();
-      }).catch((e) => {
-        av.setDesc("");
-        new import_obsidian28.Notice(`Couldn't save the image: ${e.message}`);
-      }).finally(() => {
-        b.setDisabled(false);
-        pending = null;
-      });
+    (b) => b.setButtonText(m.avatar ? "Replace" : "Choose image").onClick(() => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.onchange = async () => {
+        var _a2;
+        const f = (_a2 = input.files) == null ? void 0 : _a2[0];
+        if (!f) return;
+        try {
+          m.avatar = await plugin.saveImage(f);
+          av.setDesc(m.avatar);
+        } catch (e) {
+          new import_obsidian29.Notice(`Couldn't save the image: ${e.message}`);
+        }
+      };
+      input.click();
     })
   );
-  if (m.avatar)
-    av.addExtraButton(
-      (x) => x.setIcon("x").setTooltip("Remove avatar (the image file stays in the vault)").onClick(() => {
-        m.avatar = "";
-        av.setDesc("Removed \u2014 tap Save to keep it.");
-        show();
-      })
-    );
   det.createDiv({ cls: "cmn-label", text: "Custom fields" });
   const list = det.createDiv();
   m.fields = [...(_a = m.fields) != null ? _a : []];
   const paint = () => {
     list.empty();
     m.fields.forEach((f, i) => {
-      new import_obsidian28.Setting(list).addText((x) => x.setPlaceholder("Label").setValue(f.label).onChange((v) => f.label = v)).addText((x) => x.setPlaceholder("Value").setValue(f.value).onChange((v) => f.value = v)).addExtraButton(
+      new import_obsidian29.Setting(list).addText((x) => x.setPlaceholder("Label").setValue(f.label).onChange((v) => f.label = v)).addText((x) => x.setPlaceholder("Value").setValue(f.value).onChange((v) => f.value = v)).addExtraButton(
         (b) => b.setIcon("x").setTooltip("Remove this field").onClick(() => {
           m.fields.splice(i, 1);
           paint();
@@ -1766,7 +1769,7 @@ function fullProfileFields(el2, plugin, m) {
     });
   };
   paint();
-  new import_obsidian28.Setting(det).addButton(
+  new import_obsidian29.Setting(det).addButton(
     (b) => b.setButtonText("+ Field").onClick(() => {
       m.fields.push({ label: "", value: "" });
       paint();
@@ -1797,11 +1800,8 @@ function fullProfileFields(el2, plugin, m) {
     }).open();
   };
   gpaint();
-  return async () => {
-    while (pending) await pending;
-  };
 }
-var StatusesModal = class extends import_obsidian28.Modal {
+var StatusesModal = class extends import_obsidian29.Modal {
   constructor(plugin, onSaved = () => {
   }) {
     super(plugin.app);
@@ -1821,7 +1821,7 @@ var StatusesModal = class extends import_obsidian28.Modal {
       for (const r of this.rows) {
         if (r.remove) continue;
         const n = inUse(r.id);
-        const set = new import_obsidian28.Setting(list).setDesc(`${r.builtIn ? "Built in" : "Your own"}${n ? ` \xB7 ${n} ${n === 1 ? "has" : "have"} it` : ""}`).addText((x) => x.setPlaceholder("Name").setValue(r.label).onChange((v) => r.label = v));
+        const set = new import_obsidian29.Setting(list).setDesc(`${r.builtIn ? "Built in" : "Your own"}${n ? ` \xB7 ${n} ${n === 1 ? "has" : "have"} it` : ""}`).addText((x) => x.setPlaceholder("Name").setValue(r.label).onChange((v) => r.label = v));
         if (!r.builtIn)
           set.addExtraButton(
             (b) => b.setIcon("x").setTooltip("Remove this status").onClick(() => {
@@ -1832,7 +1832,7 @@ var StatusesModal = class extends import_obsidian28.Modal {
       }
     };
     paint();
-    new import_obsidian28.Setting(this.contentEl).addButton(
+    new import_obsidian29.Setting(this.contentEl).addButton(
       (b) => b.setButtonText("+ New status").onClick(() => {
         this.rows.push({ id: `st-${newId()}`, label: "", builtIn: false, was: "", remove: false });
         paint();
@@ -1854,7 +1854,7 @@ var StatusesModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var TextModal = class extends import_obsidian28.Modal {
+var TextModal = class extends import_obsidian29.Modal {
   constructor(plugin, title, desc, value, onSave) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1868,12 +1868,12 @@ var TextModal = class extends import_obsidian28.Modal {
     this.titleEl.setText(this.title);
     if (this.desc) this.contentEl.createEl("p", { cls: "cmn-muted", text: this.desc });
     let v = this.value;
-    new import_obsidian28.Setting(this.contentEl).addTextArea((x) => {
+    new import_obsidian29.Setting(this.contentEl).addTextArea((x) => {
       x.setValue(v).onChange((s) => v = s);
       x.inputEl.rows = 6;
       x.inputEl.style.width = "100%";
     });
-    new import_obsidian28.Setting(this.contentEl).addButton(
+    new import_obsidian29.Setting(this.contentEl).addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
         this.close();
         await this.onSave(v);
@@ -1884,7 +1884,7 @@ var TextModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var PickModal = class extends import_obsidian28.Modal {
+var PickModal = class extends import_obsidian29.Modal {
   constructor(plugin, title, onPick, extra = []) {
     super(plugin.app);
     this.plugin = plugin;
@@ -1909,7 +1909,7 @@ var PickModal = class extends import_obsidian28.Modal {
     this.contentEl.empty();
   }
 };
-var ActionsModal = class extends import_obsidian28.Modal {
+var ActionsModal = class extends import_obsidian29.Modal {
   constructor(plugin, title, desc, actions) {
     super(plugin.app);
     this.title = title;
@@ -1935,7 +1935,7 @@ var ActionsModal = class extends import_obsidian28.Modal {
 };
 
 // src/commsview.ts
-var import_obsidian29 = require("obsidian");
+var import_obsidian30 = require("obsidian");
 
 // src/maps.ts
 var WORLD = 1e3;
@@ -2190,7 +2190,7 @@ function submit(btn, fn) {
       await fn();
     } catch (e) {
       console.error("commons: submit failed", e);
-      new import_obsidian29.Notice("Not sent \u2014 your words are still here. Try again.");
+      new import_obsidian30.Notice("Not sent \u2014 your words are still here. Try again.");
     } finally {
       btn.disabled = false;
     }
@@ -2279,7 +2279,7 @@ function renderChat(root, plugin, ui) {
   plugin.drafts.bind(ta, dkey);
   const file = comp.createEl("input", { attr: { type: "file", accept: "image/*", multiple: "" } });
   let held = plugin.drafts.get(`${dkey}:held`) === "1";
-  new import_obsidian29.Setting(comp).setName("Hold it").setDesc("Behind a tap for everyone; never in previews or search. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => {
+  new import_obsidian30.Setting(comp).setName("Hold it").setDesc("Behind a tap for everyone; never in previews or search. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => {
     held = v;
     plugin.drafts.set(`${dkey}:held`, v ? "1" : "");
   }));
@@ -2293,7 +2293,7 @@ function renderChat(root, plugin, ui) {
       try {
         images.push(await plugin.saveImage(f));
       } catch (e) {
-        new import_obsidian29.Notice(`Couldn't save ${f.name}: ${e.message}`);
+        new import_obsidian30.Notice(`Couldn't save ${f.name}: ${e.message}`);
       }
     }
     await plugin.record("msg", { channel: ch.id, by: plugin.speaker(), text, replyTo: ui.replyTo, images, held });
@@ -2353,9 +2353,9 @@ function actionsFor(acts, plugin, x, kind) {
   acts.createEl("button", { text: x.held ? "Unhold" : "Hold" }).onclick = () => void plugin.record(x.held ? "unhold" : "hold", { target: x.id, by: me });
   acts.createEl("button", { text: "To daily note" }).onclick = async () => {
     await plugin.record("todaily", { target: x.id });
-    new import_obsidian29.Notice(x.held ? "Added to today's note as a held placeholder." : "Added to today's note.");
+    new import_obsidian30.Notice(x.held ? "Added to today's note as a held placeholder." : "Added to today's note.");
   };
-  acts.createEl("button", { text: "Remove" }).onclick = () => void plugin.record("delete", { target: x.id }).then(() => new import_obsidian29.Notice(`${kind === "message" ? "Message" : "Letter"} removed. It can be restored from "Recently removed" on Today.`));
+  acts.createEl("button", { text: "Remove" }).onclick = () => void plugin.record("delete", { target: x.id }).then(() => new import_obsidian30.Notice(`${kind === "message" ? "Message" : "Letter"} removed. It can be restored from "Recently removed" on Today.`));
 }
 function renderLetters(root, plugin, ui) {
   const s = plugin.state;
@@ -2410,12 +2410,12 @@ function renderLetters(root, plugin, ui) {
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "4", placeholder: "Dear\u2026" } });
   plugin.drafts.bind(ta, `letter:${who}`);
   let held = false;
-  new import_obsidian29.Setting(comp).setName("Hold it").addToggle((t) => t.onChange((v) => held = v));
+  new import_obsidian30.Setting(comp).setName("Hold it").addToggle((t) => t.onChange((v) => held = v));
   submit(comp.createEl("button", { cls: "mod-cta", text: "Send letter" }), async () => {
     if (!ta.value.trim() || to.size === 0) return;
     await plugin.record("letter", { to: [...to], by: plugin.speaker(), text: ta.value.trim(), held });
     plugin.drafts.clear(`letter:${who}`);
-    new import_obsidian29.Notice("Letter sent.");
+    new import_obsidian30.Notice("Letter sent.");
     ui.rerender();
   });
 }
@@ -2438,7 +2438,7 @@ function renderNotices(root, plugin, ui) {
   const ta = comp.createEl("textarea", { cls: "cmn-input", attr: { rows: "2", placeholder: 'Short notice \u2014 e.g. "Bins go out Thursday"' } });
   plugin.drafts.bind(ta, "notice");
   let until = (_a = plugin.drafts.get("notice:until")) != null ? _a : "";
-  new import_obsidian29.Setting(comp).setName("Expires (optional)").addText((t) => {
+  new import_obsidian30.Setting(comp).setName("Expires (optional)").addText((t) => {
     t.inputEl.type = "datetime-local";
     t.setValue(until);
     t.onChange((v) => {
@@ -2472,16 +2472,16 @@ function renderPolls(root, plugin, ui) {
   let multi = false;
   let anonymous = false;
   let deadline = "";
-  new import_obsidian29.Setting(comp).setName("Pick more than one").addToggle((t) => t.onChange((v) => multi = v));
-  new import_obsidian29.Setting(comp).setName("Anonymous").setDesc("Shows counts only, not who chose what.").addToggle((t) => t.onChange((v) => anonymous = v));
-  new import_obsidian29.Setting(comp).setName("Deadline (optional)").addText((t) => {
+  new import_obsidian30.Setting(comp).setName("Pick more than one").addToggle((t) => t.onChange((v) => multi = v));
+  new import_obsidian30.Setting(comp).setName("Anonymous").setDesc("Shows counts only, not who chose what.").addToggle((t) => t.onChange((v) => anonymous = v));
+  new import_obsidian30.Setting(comp).setName("Deadline (optional)").addText((t) => {
     t.inputEl.type = "datetime-local";
     t.onChange((v) => deadline = v);
   });
   submit(comp.createEl("button", { cls: "mod-cta", text: "Start poll" }), async () => {
     const options = opts.value.split("\n").map((l) => l.trim()).filter(Boolean).map((label) => ({ id: newId().slice(0, 8), label }));
     if (!q.value.trim() || options.length < 2) {
-      new import_obsidian29.Notice("A question and at least two options.");
+      new import_obsidian30.Notice("A question and at least two options.");
       return;
     }
     await plugin.record("poll", { question: q.value.trim(), options, multi, anonymous, deadline: deadline ? new Date(deadline).toISOString() : "", by: plugin.speaker() });
@@ -2590,7 +2590,7 @@ function renderSearch(root, plugin, ui) {
 }
 
 // src/journalview.ts
-var import_obsidian30 = require("obsidian");
+var import_obsidian31 = require("obsidian");
 var PAGE = 7;
 function todayStr() {
   const d = /* @__PURE__ */ new Date();
@@ -2676,7 +2676,7 @@ async function renderJournal(root, plugin, ui, jui) {
   let mood = (_c = plugin.drafts.get("jentry:mood")) != null ? _c : "";
   let energy = (_d = plugin.drafts.get("jentry:energy")) != null ? _d : "";
   let held = plugin.drafts.get("jentry:held") === "1";
-  new import_obsidian30.Setting(comp).setName("Section").addDropdown((d) => {
+  new import_obsidian31.Setting(comp).setName("Section").addDropdown((d) => {
     for (const f of fields) d.addOption(f.key, f.label);
     d.setValue(section).onChange((v) => {
       section = v;
@@ -2699,7 +2699,7 @@ ${t.body}` : t.body;
     if (!ta.value.trim()) return;
     const name = ta.value.trim().split("\n")[0].slice(0, 30);
     await plugin.record("jtemplate", { name, body: ta.value });
-    new import_obsidian30.Notice(`Template "${name}" saved.`);
+    new import_obsidian31.Notice(`Template "${name}" saved.`);
   };
   const chipRow = (label, options, set, initial = "") => {
     const row = comp.createDiv({ cls: "cmn-chips" });
@@ -2718,7 +2718,7 @@ ${t.body}` : t.body;
   chipRow("Energy:", ENERGY, (v) => (energy = v, plugin.drafts.set("jentry:energy", v)), energy);
   const topics = comp.createEl("input", { cls: "cmn-input", attr: { type: "text", placeholder: "Topics, comma-separated (optional)" } });
   plugin.drafts.bind(topics, "jentry:topics");
-  new import_obsidian30.Setting(comp).setName("Hold it").setDesc("Only a placeholder goes in the note; the words stay behind a tap in Commons. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => (held = v, plugin.drafts.set("jentry:held", v ? "1" : ""))));
+  new import_obsidian31.Setting(comp).setName("Hold it").setDesc("Only a placeholder goes in the note; the words stay behind a tap in Commons. Not encryption.").addToggle((t) => t.setValue(held).onChange((v) => (held = v, plugin.drafts.set("jentry:held", v ? "1" : ""))));
   submit(comp.createEl("button", { cls: "mod-cta", text: "Add entry" }), async () => {
     if (!ta.value.trim()) return;
     const text = ta.value;
@@ -2824,7 +2824,7 @@ function mergeLines(current, mine) {
 }
 
 // src/mapview.ts
-var import_obsidian31 = require("obsidian");
+var import_obsidian32 = require("obsidian");
 var NS = "http://www.w3.org/2000/svg";
 var PALETTE = ["#c77dba", "#d9a441", "#6fa8dc", "#7fb069", "#e07a5f", "#9a8fd1", "#5fa3a3", "#c9a46a"];
 function newMapUi() {
@@ -3097,15 +3097,20 @@ function renderRelationships(root, plugin, ui, maps, rerender) {
   root.createEl("p", { cls: "cmn-muted", text: "Drag to pan, pinch or scroll to zoom. Drag a person to pin them; tap for their profile." });
 }
 function pickPhoto(plugin) {
-  void pickImageFile().then(async (f) => {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/*";
+  input.onchange = async () => {
+    var _a;
+    const f = (_a = input.files) == null ? void 0 : _a[0];
     if (!f) return;
-    new import_obsidian31.Notice("Adding the photo\u2026");
     try {
       await plugin.record("mapbg", { path: await plugin.saveImage(f) });
     } catch (e) {
-      new import_obsidian31.Notice(`Couldn't save the photo: ${e.message}`);
+      new import_obsidian32.Notice(`Couldn't save the photo: ${e.message}`);
     }
-  });
+  };
+  input.click();
 }
 function renderWorld(root, plugin, ui, maps, rerender) {
   const s = plugin.state;
@@ -3238,7 +3243,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
       onStroke: (raw) => {
         const pts = simplifyStroke(raw.map(toStore));
         if (!pts.length) {
-          new import_obsidian31.Notice("That outline was too small \u2014 try a bigger loop.");
+          new import_obsidian32.Notice("That outline was too small \u2014 try a bigger loop.");
           return;
         }
         new TextModal(plugin, "Name this area", "Optional \u2014 you can name it later.", "", async (name) => {
@@ -3326,7 +3331,7 @@ function renderWorld(root, plugin, ui, maps, rerender) {
 }
 
 // src/historyview.ts
-var import_obsidian32 = require("obsidian");
+var import_obsidian33 = require("obsidian");
 function newHistUi() {
   const d = /* @__PURE__ */ new Date();
   return { days: 7, month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`, focus: "" };
@@ -3335,7 +3340,7 @@ function dayStart(date) {
   const [y, m, d] = date.split("-").map(Number);
   return new Date(y, m - 1, d);
 }
-var WhenModal = class extends import_obsidian32.Modal {
+var WhenModal = class extends import_obsidian33.Modal {
   constructor(plugin, iso, onSave) {
     super(plugin.app);
     this.plugin = plugin;
@@ -3348,11 +3353,11 @@ var WhenModal = class extends import_obsidian32.Modal {
     const d = new Date(this.iso);
     const p = (n) => String(n).padStart(2, "0");
     let v = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
-    new import_obsidian32.Setting(this.contentEl).addText((t) => {
+    new import_obsidian33.Setting(this.contentEl).addText((t) => {
       t.inputEl.type = "datetime-local";
       t.setValue(v).onChange((x) => v = x);
     });
-    new import_obsidian32.Setting(this.contentEl).addButton(
+    new import_obsidian33.Setting(this.contentEl).addButton(
       (b) => b.setButtonText("Save").setCta().onClick(async () => {
         this.close();
         if (v) await this.onSave(new Date(v).toISOString());
@@ -3384,7 +3389,7 @@ function renderHistory(root, plugin, hu, rerender) {
   const acts = top.createDiv({ cls: "cmn-line-actions" });
   acts.createEl("button", { text: "+ Add a past entry" }).onclick = () => plugin.openHere();
   acts.createEl("button", { text: "Printable summary\u2026" }).onclick = () => {
-    if (!plugin.openTrackerReport()) new import_obsidian32.Notice("The printable summary is part of the dashboard's health report \u2014 install or update the MERIDIAN dashboard (1.56 or later).");
+    if (!plugin.openTrackerReport()) new import_obsidian33.Notice("The printable summary is part of the dashboard's health report \u2014 install or update the MERIDIAN dashboard (1.56 or later).");
   };
   const spans = frontSpans(s, start, rangeEnd, now);
   const stats = root.createDiv({ cls: "cmn-card" });
@@ -3494,7 +3499,7 @@ function editSegment(plugin, kind, id) {
 var VIEW_TYPE_COMMONS = "commons-view";
 var HERE_TOKEN = "@here";
 var RECENT_DAYS = 7;
-var CommonsView = class extends import_obsidian33.ItemView {
+var CommonsView = class extends import_obsidian34.ItemView {
   constructor(leaf, plugin) {
     super(leaf);
     this.plugin = plugin;
@@ -3784,8 +3789,8 @@ var CommonsView = class extends import_obsidian33.ItemView {
 };
 
 // src/settings.ts
-var import_obsidian34 = require("obsidian");
-var CommonsSettingTab = class extends import_obsidian34.PluginSettingTab {
+var import_obsidian35 = require("obsidian");
+var CommonsSettingTab = class extends import_obsidian35.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -3793,6 +3798,7 @@ var CommonsSettingTab = class extends import_obsidian34.PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
+    startupSetting(containerEl, this.app, "commons", "Commons");
     containerEl.createEl("h3", { text: "Words" });
     containerEl.createEl("p", { cls: "setting-item-description", text: "Use whatever words fit. These sync to every device." });
     const terms = {};
@@ -3804,23 +3810,23 @@ var CommonsSettingTab = class extends import_obsidian34.PluginSettingTab {
       cofronting: "More than one here"
     };
     for (const k of Object.keys(DEFAULT_TERMS)) {
-      new import_obsidian34.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
+      new import_obsidian35.Setting(containerEl).setName(labels[k]).setDesc(`Default: ${DEFAULT_TERMS[k]}`).addText((t) => t.setValue(this.plugin.state.terms[k]).onChange((v) => terms[k] = v));
     }
-    new import_obsidian34.Setting(containerEl).addButton(
+    new import_obsidian35.Setting(containerEl).addButton(
       (b) => b.setButtonText("Save words").setCta().onClick(async () => {
         if (Object.keys(terms).length) await this.plugin.setTerms(terms);
         this.display();
       })
     );
     containerEl.createEl("h3", { text: "Behaviour" });
-    new import_obsidian34.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
+    new import_obsidian35.Setting(containerEl).setName("Offer a handoff after a switch").setDesc("A small, skippable prompt. Never nags.").addToggle(
       (t) => t.setValue(this.plugin.settings.offerHandoffOnSwitch).onChange(async (v) => {
         this.plugin.settings.offerHandoffOnSwitch = v;
         await this.plugin.saveSettings();
       })
     );
     containerEl.createEl("h3", { text: "Storage" });
-    new import_obsidian34.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
+    new import_obsidian35.Setting(containerEl).setName("Folder").setDesc("Where the Commons log lives in the vault. Changing it does not move anything: entries already written stay where they are.").addText(
       (t) => t.setValue(this.plugin.settings.folder).onChange(async (v) => {
         this.plugin.settings.folder = v.trim() || "Commons";
         await this.plugin.saveSettings();
@@ -3840,7 +3846,7 @@ var CommonsSettingTab = class extends import_obsidian34.PluginSettingTab {
 
 // src/main.ts
 var DEFAULTS = { folder: "Commons", offerHandoffOnSwitch: true };
-var CommonsPlugin = class extends import_obsidian35.Plugin {
+var CommonsPlugin = class extends import_obsidian36.Plugin {
   constructor() {
     super(...arguments);
     this.settings = { ...DEFAULTS };
@@ -3884,6 +3890,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
   }
   async onload() {
     this.registerView(VIEW_TYPE_COMMONS, (leaf) => new CommonsView(leaf, this));
+    this.app.workspace.onLayoutReady(() => void openViewOnStartup(this.app, "commons", VIEW_TYPE_COMMONS));
     applyUiStyles(this);
     this.settings = { ...DEFAULTS, ...await this.loadData() };
     this.store = new CommonsStore(this.app, () => this.settings.folder);
@@ -3898,7 +3905,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
       name: "Write Commons lines into past daily notes (creates missing notes)",
       callback: async () => {
         const r = await mirrorToDailyNotes(this.app, this.state, this.store.device(), /* @__PURE__ */ new Date(), { allowCreatePast: true });
-        new import_obsidian35.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
+        new import_obsidian36.Notice(`Commons: wrote ${r.written} line${r.written === 1 ? "" : "s"}.`);
       }
     });
     this.registerObsidianProtocolHandler("commons", (p) => {
@@ -3910,7 +3917,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
       else void this.openView();
     });
     this.addSettingTab(new CommonsSettingTab(this.app, this));
-    const reload = (0, import_obsidian35.debounce)(() => void this.reload(), 400, true);
+    const reload = (0, import_obsidian36.debounce)(() => void this.reload(), 400, true);
     this.registerEvent(this.app.vault.on("modify", (f) => this.store.isLogPath(f.path) && reload()));
     this.registerEvent(this.app.vault.on("create", (f) => this.store.isLogPath(f.path) && reload()));
     this.app.workspace.onLayoutReady(() => void this.reload(true));
@@ -3954,7 +3961,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
     await this.store.record([e]);
     await this.reload();
     const waiting = this.store.outbox().length;
-    if (waiting) new import_obsidian35.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
+    if (waiting) new import_obsidian36.Notice(`Commons: saved on this device; ${waiting} entr${waiting === 1 ? "y is" : "ies are"} waiting to reach the vault and will retry.`);
     return e.id;
   }
   // ── actions ──────────────────────────────────────────────────────────────
@@ -3969,13 +3976,13 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
       frag.createSpan({ text: "Want to leave a handoff for whoever's next? " });
       const b = frag.createEl("button", { text: "Write one" });
       b.onclick = () => this.openHandoff(prev);
-      new import_obsidian35.Notice(frag, 8e3);
+      new import_obsidian36.Notice(frag, 8e3);
     }
   }
   async logGap() {
     const w = gapWindow(this.state, /* @__PURE__ */ new Date());
     if (!w) {
-      new import_obsidian35.Notice("Commons: nothing recorded yet, so there's no gap to log.");
+      new import_obsidian36.Notice("Commons: nothing recorded yet, so there's no gap to log.");
       return;
     }
     const id = await this.record("gap", { from: w.from, to: w.to, clues: "" });
@@ -4058,7 +4065,7 @@ var CommonsPlugin = class extends import_obsidian35.Plugin {
     });
     await this.store.record([e]);
     await this.reload();
-    new import_obsidian35.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
+    new import_obsidian36.Notice(ok ? "Added to today's journal." : "Saved in Commons; it will be added to today's note when the note can be written.");
   }
   /** Write any of this device's entries that couldn't reach today's note yet. */
   async retryJournal() {
